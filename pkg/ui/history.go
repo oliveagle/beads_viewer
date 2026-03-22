@@ -1452,7 +1452,9 @@ func capitalizeFirst(s string) string {
 	if s == "" {
 		return s
 	}
-	return strings.ToUpper(s[:1]) + s[1:]
+	runes := []rune(s)
+	runes[0] = []rune(strings.ToUpper(string(runes[0])))[0]
+	return string(runes)
 }
 
 // formatTimelineTimestamp formats a timestamp for the timeline (bv-1x6o)
@@ -2106,10 +2108,7 @@ func (h *HistoryModel) renderBeadLine(idx int, hist correlation.BeadHistory, wid
 	if maxTitleLen < 10 {
 		maxTitleLen = 10
 	}
-	title := hist.Title
-	if len(title) > maxTitleLen {
-		title = title[:maxTitleLen-1] + "…"
-	}
+	title := truncateRunesHelper(hist.Title, maxTitleLen, "…")
 
 	// Build line
 	idStyle := t.Renderer.NewStyle().Foreground(t.Secondary).Width(12)
@@ -2243,10 +2242,7 @@ func (h *HistoryModel) renderFileTreeLine(idx int, node *FileTreeNode, width int
 		maxNameLen = 5
 	}
 
-	name := node.Name
-	if len(name) > maxNameLen {
-		name = name[:maxNameLen-1] + "…"
-	}
+	name := truncateRunesHelper(node.Name, maxNameLen, "…")
 
 	// Styling
 	nameStyle := t.Renderer.NewStyle()
@@ -2312,10 +2308,10 @@ func (h *HistoryModel) renderDetailPanel(width, height int) string {
 		statusIcon = "●"
 	}
 	beadInfo := fmt.Sprintf("%s %s: %s", statusIcon, hist.BeadID, hist.Title)
-	if width > 10 && len(beadInfo) > width-6 {
-		beadInfo = beadInfo[:width-7] + "…"
-	} else if width <= 10 && len(beadInfo) > 5 {
-		beadInfo = beadInfo[:4] + "…"
+	if width > 10 {
+		beadInfo = truncateRunesHelper(beadInfo, width-6, "…")
+	} else {
+		beadInfo = truncateRunesHelper(beadInfo, 5, "…")
 	}
 	beadInfoStyle := t.Renderer.NewStyle().Foreground(t.Secondary)
 
@@ -2474,10 +2470,7 @@ func (h *HistoryModel) renderCommitDetail(commit correlation.CorrelatedCommit, w
 		if maxAuthor < 10 {
 			maxAuthor = 10
 		}
-		authorName := commit.Author
-		if len(authorName) > maxAuthor {
-			authorName = authorName[:maxAuthor-1] + "…"
-		}
+		authorName := truncateRunesHelper(commit.Author, maxAuthor, "…")
 		authorLine = fmt.Sprintf("    %s %s • %s",
 			initialsStyle.Render(initials),
 			authorStyle.Render(authorName),
@@ -3083,10 +3076,7 @@ func (h *HistoryModel) renderGitCommitLine(idx int, commit CommitListEntry, widt
 	if maxMsgLen < 10 {
 		maxMsgLen = 10
 	}
-	msg := commit.Message
-	if len(msg) > maxMsgLen {
-		msg = msg[:maxMsgLen-1] + "…"
-	}
+	msg := truncateRunesHelper(commit.Message, maxMsgLen, "…")
 
 	// Build line
 	shaStyle := t.Renderer.NewStyle().Foreground(t.Primary)
@@ -3178,9 +3168,7 @@ func (h *HistoryModel) renderGitDetailPanel(width, height int) string {
 		if maxLen < 10 {
 			maxLen = 10
 		}
-		if len(title) > maxLen {
-			title = title[:maxLen-1] + "…"
-		}
+		title = truncateRunesHelper(title, maxLen, "…")
 
 		beadLine := fmt.Sprintf("%s%s %s %s", indicator, statusIcon, beadID, beadStyle.Render(title))
 		lines = append(lines, beadLine)
@@ -3199,10 +3187,7 @@ func (h *HistoryModel) renderGitDetailPanel(width, height int) string {
 	}
 	lines = append(lines, t.Renderer.NewStyle().Foreground(t.Primary).Render(shaLine))
 
-	authorLine := fmt.Sprintf("Author: %s", commit.Author)
-	if width > 10 && len(authorLine) > width-6 {
-		authorLine = authorLine[:width-7] + "…"
-	}
+	authorLine := truncateRunesHelper(fmt.Sprintf("Author: %s", commit.Author), width-6, "…")
 	lines = append(lines, t.Renderer.NewStyle().Foreground(t.Secondary).Render(authorLine))
 
 	dateLine := fmt.Sprintf("Date: %s", commit.Timestamp)
@@ -3216,9 +3201,7 @@ func (h *HistoryModel) renderGitDetailPanel(width, height int) string {
 	msgStyle := t.Renderer.NewStyle().Foreground(t.Base.GetForeground())
 	msgLines := strings.Split(commit.Message, "\n")
 	for _, ml := range msgLines {
-		if width > 6 && len(ml) > width-6 {
-			ml = ml[:width-7] + "…"
-		}
+		ml = truncateRunesHelper(ml, width-6, "…")
 		lines = append(lines, msgStyle.Render(ml))
 	}
 
@@ -3312,10 +3295,7 @@ func (h *HistoryModel) renderCommitMiddlePanel(width, height int) string {
 		if maxMsgLen < 10 {
 			maxMsgLen = 10
 		}
-		msg := commit.Message
-		if len(msg) > maxMsgLen {
-			msg = msg[:maxMsgLen-1] + "…"
-		}
+		msg := truncateRunesHelper(commit.Message, maxMsgLen, "…")
 
 		line := fmt.Sprintf("%s%s %s", indicator, shaStyle.Render(commit.ShortSHA), msg)
 		lines = append(lines, line)
@@ -3419,9 +3399,7 @@ func (h *HistoryModel) renderGitBeadListPanel(width, height int) string {
 		if maxLen < 10 {
 			maxLen = 10
 		}
-		if len(title) > maxLen {
-			title = title[:maxLen-1] + "…"
-		}
+		title = truncateRunesHelper(title, maxLen, "…")
 
 		beadLine := fmt.Sprintf("%s%s %s", indicator, statusIcon, beadStyle.Render(title))
 		lines = append(lines, beadLine)

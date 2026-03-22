@@ -566,8 +566,8 @@ func (nb *NetworkBuilder) generateClusterLabel(beadIDs []string, sharedFiles []s
 	if len(beadIDs) > 0 {
 		if history, ok := nb.report.Histories[beadIDs[0]]; ok {
 			title := history.Title
-			if len(title) > 30 {
-				title = title[:30] + "..."
+			if len([]rune(title)) > 30 {
+				title = string([]rune(title)[:27]) + "..."
 			}
 			return title
 		}

@@ -10,11 +10,11 @@ import (
 
 func TestEnabled(t *testing.T) {
 	// Save original state
-	originalEnabled := enabled
+	originalEnabled := enabled.Load()
 	originalLogger := logger
 
 	defer func() {
-		enabled = originalEnabled
+		enabled.Store(originalEnabled)
 		logger = originalLogger
 	}()
 
@@ -33,17 +33,17 @@ func TestEnabled(t *testing.T) {
 
 func TestLog(t *testing.T) {
 	// Save original state
-	originalEnabled := enabled
+	originalEnabled := enabled.Load()
 	originalLogger := logger
 
 	defer func() {
-		enabled = originalEnabled
+		enabled.Store(originalEnabled)
 		logger = originalLogger
 	}()
 
 	// Capture output
 	var buf bytes.Buffer
-	enabled = true
+	enabled.Store(true)
 	logger = log.New(&buf, "[TEST] ", 0)
 
 	Log("test message %d", 42)
@@ -56,17 +56,17 @@ func TestLog(t *testing.T) {
 
 func TestLog_Disabled(t *testing.T) {
 	// Save original state
-	originalEnabled := enabled
+	originalEnabled := enabled.Load()
 	originalLogger := logger
 
 	defer func() {
-		enabled = originalEnabled
+		enabled.Store(originalEnabled)
 		logger = originalLogger
 	}()
 
 	// Capture output
 	var buf bytes.Buffer
-	enabled = false
+	enabled.Store(false)
 	logger = log.New(&buf, "[TEST] ", 0)
 
 	Log("should not appear")
@@ -79,17 +79,17 @@ func TestLog_Disabled(t *testing.T) {
 
 func TestLogTiming(t *testing.T) {
 	// Save original state
-	originalEnabled := enabled
+	originalEnabled := enabled.Load()
 	originalLogger := logger
 
 	defer func() {
-		enabled = originalEnabled
+		enabled.Store(originalEnabled)
 		logger = originalLogger
 	}()
 
 	// Capture output
 	var buf bytes.Buffer
-	enabled = true
+	enabled.Store(true)
 	logger = log.New(&buf, "[TEST] ", 0)
 
 	LogTiming("operation", 123*time.Millisecond)
@@ -102,17 +102,17 @@ func TestLogTiming(t *testing.T) {
 
 func TestLogIf(t *testing.T) {
 	// Save original state
-	originalEnabled := enabled
+	originalEnabled := enabled.Load()
 	originalLogger := logger
 
 	defer func() {
-		enabled = originalEnabled
+		enabled.Store(originalEnabled)
 		logger = originalLogger
 	}()
 
 	// Capture output
 	var buf bytes.Buffer
-	enabled = true
+	enabled.Store(true)
 	logger = log.New(&buf, "[TEST] ", 0)
 
 	LogIf(false, "should not appear")
@@ -128,17 +128,17 @@ func TestLogIf(t *testing.T) {
 
 func TestLogEnterExit(t *testing.T) {
 	// Save original state
-	originalEnabled := enabled
+	originalEnabled := enabled.Load()
 	originalLogger := logger
 
 	defer func() {
-		enabled = originalEnabled
+		enabled.Store(originalEnabled)
 		logger = originalLogger
 	}()
 
 	// Capture output
 	var buf bytes.Buffer
-	enabled = true
+	enabled.Store(true)
 	logger = log.New(&buf, "[TEST] ", 0)
 
 	func() {
@@ -157,17 +157,17 @@ func TestLogEnterExit(t *testing.T) {
 
 func TestDump(t *testing.T) {
 	// Save original state
-	originalEnabled := enabled
+	originalEnabled := enabled.Load()
 	originalLogger := logger
 
 	defer func() {
-		enabled = originalEnabled
+		enabled.Store(originalEnabled)
 		logger = originalLogger
 	}()
 
 	// Capture output
 	var buf bytes.Buffer
-	enabled = true
+	enabled.Store(true)
 	logger = log.New(&buf, "[TEST] ", 0)
 
 	type testStruct struct {
@@ -187,17 +187,17 @@ func TestDump(t *testing.T) {
 
 func TestSection(t *testing.T) {
 	// Save original state
-	originalEnabled := enabled
+	originalEnabled := enabled.Load()
 	originalLogger := logger
 
 	defer func() {
-		enabled = originalEnabled
+		enabled.Store(originalEnabled)
 		logger = originalLogger
 	}()
 
 	// Capture output
 	var buf bytes.Buffer
-	enabled = true
+	enabled.Store(true)
 	logger = log.New(&buf, "[TEST] ", 0)
 
 	Section("Test Section")
@@ -210,21 +210,21 @@ func TestSection(t *testing.T) {
 
 func TestCheckpoint(t *testing.T) {
 	// Save original state
-	originalEnabled := enabled
+	originalEnabled := enabled.Load()
 	originalLogger := logger
-	originalCounter := checkpointCounter
+	originalCounter := checkpointCounter.Load()
 
 	defer func() {
-		enabled = originalEnabled
+		enabled.Store(originalEnabled)
 		logger = originalLogger
-		checkpointCounter = originalCounter
+		checkpointCounter.Store(originalCounter)
 	}()
 
 	// Capture output
 	var buf bytes.Buffer
-	enabled = true
+	enabled.Store(true)
 	logger = log.New(&buf, "[TEST] ", 0)
-	checkpointCounter = 0
+	checkpointCounter.Store(0)
 
 	Checkpoint("first")
 	Checkpoint("second")
@@ -239,22 +239,22 @@ func TestCheckpoint(t *testing.T) {
 }
 
 func TestResetCheckpoints(t *testing.T) {
-	checkpointCounter = 10
+	checkpointCounter.Store(10)
 	ResetCheckpoints()
-	if checkpointCounter != 0 {
-		t.Errorf("checkpointCounter after reset = %d; want 0", checkpointCounter)
+	if checkpointCounter.Load() != 0 {
+		t.Errorf("checkpointCounter after reset = %d; want 0", checkpointCounter.Load())
 	}
 }
 
 func TestAssert_Pass(t *testing.T) {
 	// Save original state
-	originalEnabled := enabled
+	originalEnabled := enabled.Load()
 
 	defer func() {
-		enabled = originalEnabled
+		enabled.Store(originalEnabled)
 	}()
 
-	enabled = true
+	enabled.Store(true)
 
 	// Should not panic
 	Assert(true, "this should pass")
@@ -262,17 +262,17 @@ func TestAssert_Pass(t *testing.T) {
 
 func TestAssert_Fail(t *testing.T) {
 	// Save original state
-	originalEnabled := enabled
+	originalEnabled := enabled.Load()
 	originalLogger := logger
 
 	defer func() {
-		enabled = originalEnabled
+		enabled.Store(originalEnabled)
 		logger = originalLogger
 	}()
 
 	// Capture output
 	var buf bytes.Buffer
-	enabled = true
+	enabled.Store(true)
 	logger = log.New(&buf, "[TEST] ", 0)
 
 	// Should panic
@@ -287,13 +287,13 @@ func TestAssert_Fail(t *testing.T) {
 
 func TestAssertNoError_Pass(t *testing.T) {
 	// Save original state
-	originalEnabled := enabled
+	originalEnabled := enabled.Load()
 
 	defer func() {
-		enabled = originalEnabled
+		enabled.Store(originalEnabled)
 	}()
 
-	enabled = true
+	enabled.Store(true)
 
 	// Should not panic
 	AssertNoError(nil, "context")
@@ -301,17 +301,17 @@ func TestAssertNoError_Pass(t *testing.T) {
 
 func TestLogFunc(t *testing.T) {
 	// Save original state
-	originalEnabled := enabled
+	originalEnabled := enabled.Load()
 	originalLogger := logger
 
 	defer func() {
-		enabled = originalEnabled
+		enabled.Store(originalEnabled)
 		logger = originalLogger
 	}()
 
 	// Capture output
 	var buf bytes.Buffer
-	enabled = true
+	enabled.Store(true)
 	logger = log.New(&buf, "[TEST] ", 0)
 
 	LogFunc("done")()
@@ -324,13 +324,13 @@ func TestLogFunc(t *testing.T) {
 
 func TestLogFunc_Disabled(t *testing.T) {
 	// Save original state
-	originalEnabled := enabled
+	originalEnabled := enabled.Load()
 
 	defer func() {
-		enabled = originalEnabled
+		enabled.Store(originalEnabled)
 	}()
 
-	enabled = false
+	enabled.Store(false)
 
 	// Should return a no-op function
 	fn := LogFunc("should not appear")

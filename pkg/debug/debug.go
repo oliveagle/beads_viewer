@@ -22,60 +22,81 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
 var (
-	// enabled is true when BV_DEBUG env var is set
-	enabled bool
-	// logger writes to stderr with [BV_DEBUG] prefix
-	logger *log.Logger
+	// enabled is true when BV_DEBUG env var is set.
+	// Uses atomic.Bool for thread-safe concurrent access.
+	enabled atomic.Bool
+	// logger writes to stderr with [BV_DEBUG] prefix.
+	// Protected by loggerMu for safe concurrent initialization.
+	logger   *log.Logger
+	loggerMu sync.Mutex
 )
 
 func init() {
 	if os.Getenv("BV_DEBUG") != "" {
-		enabled = true
+		enabled.Store(true)
 		logger = log.New(os.Stderr, "[BV_DEBUG] ", log.Ltime|log.Lmicroseconds)
 	}
 }
 
+func getLogger() *log.Logger {
+	loggerMu.Lock()
+	defer loggerMu.Unlock()
+	return logger
+}
+
 // Enabled returns whether debug logging is enabled.
 func Enabled() bool {
-	return enabled
+	return enabled.Load()
 }
 
 // SetEnabled allows programmatic control of debug logging.
 // Note: This also requires initializing the logger if not already done.
 func SetEnabled(e bool) {
-	enabled = e
-	if e && logger == nil {
-		logger = log.New(os.Stderr, "[BV_DEBUG] ", log.Ltime|log.Lmicroseconds)
+	enabled.Store(e)
+	if e {
+		loggerMu.Lock()
+		if logger == nil {
+			logger = log.New(os.Stderr, "[BV_DEBUG] ", log.Ltime|log.Lmicroseconds)
+		}
+		loggerMu.Unlock()
 	}
 }
 
 // Log writes a debug message if debug logging is enabled.
 // Uses printf-style formatting.
 func Log(format string, args ...any) {
-	if !enabled {
+	if !enabled.Load() {
 		return
 	}
-	logger.Printf(format, args...)
+	if l := getLogger(); l != nil {
+		l.Printf(format, args...)
+	}
 }
 
 // LogTiming writes a timing message if debug logging is enabled.
 func LogTiming(name string, d time.Duration) {
-	if !enabled {
+	if !enabled.Load() {
 		return
 	}
-	logger.Printf("%s took %v", name, d)
+	if l := getLogger(); l != nil {
+		l.Printf("%s took %v", name, d)
+	}
 }
 
 // LogIf writes a debug message only if the condition is true.
 func LogIf(cond bool, format string, args ...any) {
-	if !enabled || !cond {
+	if !enabled.Load() || !cond {
 		return
 	}
-	logger.Printf(format, args...)
+	if l := getLogger(); l != nil {
+		l.Printf(format, args...)
+	}
 }
 
 // LogFunc returns a function that logs a debug message when called.
@@ -83,11 +104,13 @@ func LogIf(cond bool, format string, args ...any) {
 //
 //	defer debug.LogFunc("myFunc done")()
 func LogFunc(msg string) func() {
-	if !enabled {
+	if !enabled.Load() {
 		return func() {}
 	}
 	return func() {
-		logger.Print(msg)
+		if l := getLogger(); l != nil {
+			l.Print(msg)
+		}
 	}
 }
 
@@ -99,13 +122,17 @@ func LogFunc(msg string) func() {
 //	    // ...
 //	}
 func LogEnterExit(name string) func() {
-	if !enabled {
+	if !enabled.Load() {
 		return func() {}
 	}
-	logger.Printf("-> %s", name)
+	if l := getLogger(); l != nil {
+		l.Printf("-> %s", name)
+	}
 	start := time.Now()
 	return func() {
-		logger.Printf("<- %s (%v)", name, time.Since(start))
+		if l := getLogger(); l != nil {
+			l.Printf("<- %s (%v)", name, time.Since(start))
+		}
 	}
 }
 
@@ -114,44 +141,52 @@ var Trace = LogEnterExit
 
 // Dump logs a value with its type for debugging complex structures.
 func Dump(name string, v any) {
-	if !enabled {
+	if !enabled.Load() {
 		return
 	}
-	logger.Printf("%s: %T = %+v", name, v, v)
+	if l := getLogger(); l != nil {
+		l.Printf("%s: %T = %+v", name, v, v)
+	}
 }
 
 // Section logs a section header for visual organization in debug output.
 func Section(name string) {
-	if !enabled {
+	if !enabled.Load() {
 		return
 	}
-	logger.Printf("=== %s ===", name)
+	if l := getLogger(); l != nil {
+		l.Printf("=== %s ===", name)
+	}
 }
 
 // Checkpoint logs a numbered checkpoint for tracking progress.
-var checkpointCounter int
+var checkpointCounter atomic.Int64
 
 func Checkpoint(msg string) {
-	if !enabled {
+	if !enabled.Load() {
 		return
 	}
-	checkpointCounter++
-	logger.Printf("[%d] %s", checkpointCounter, msg)
+	n := checkpointCounter.Add(1)
+	if l := getLogger(); l != nil {
+		l.Printf("[%d] %s", n, msg)
+	}
 }
 
 // ResetCheckpoints resets the checkpoint counter.
 func ResetCheckpoints() {
-	checkpointCounter = 0
+	checkpointCounter.Store(0)
 }
 
 // Assert logs a message and panics if the condition is false.
 // Only active when debug is enabled.
 func Assert(cond bool, msg string) {
-	if !enabled {
+	if !enabled.Load() {
 		return
 	}
 	if !cond {
-		logger.Printf("ASSERTION FAILED: %s", msg)
+		if l := getLogger(); l != nil {
+			l.Printf("ASSERTION FAILED: %s", msg)
+		}
 		panic(fmt.Sprintf("debug assertion failed: %s", msg))
 	}
 }
@@ -159,11 +194,13 @@ func Assert(cond bool, msg string) {
 // AssertNoError logs and panics if err is not nil.
 // Only active when debug is enabled.
 func AssertNoError(err error, context string) {
-	if !enabled {
+	if !enabled.Load() {
 		return
 	}
 	if err != nil {
-		logger.Printf("ASSERTION FAILED: %s: %v", context, err)
+		if l := getLogger(); l != nil {
+			l.Printf("ASSERTION FAILED: %s: %v", context, err)
+		}
 		panic(fmt.Sprintf("debug assertion failed: %s: %v", context, err))
 	}
 }

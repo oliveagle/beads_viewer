@@ -14,18 +14,16 @@ import (
 // SprintsFileName is the canonical filename for sprint storage.
 const SprintsFileName = "sprints.jsonl"
 
-// LoadSprints reads sprints from .beads/sprints.jsonl under repoPath.
+// LoadSprints reads sprints from the beads directory's sprints.jsonl.
+// Respects BEADS_DB, BEADS_DIR env vars and git worktree detection via GetBeadsDir.
 // Missing file is treated as "no sprints" (empty slice, nil error).
 func LoadSprints(repoPath string) ([]model.Sprint, error) {
-	if repoPath == "" {
-		var err error
-		repoPath, err = os.Getwd()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get current working directory: %w", err)
-		}
+	beadsDir, err := GetBeadsDir(repoPath)
+	if err != nil {
+		return nil, err
 	}
 
-	sprintsPath := filepath.Join(repoPath, ".beads", SprintsFileName)
+	sprintsPath := filepath.Join(beadsDir, SprintsFileName)
 	return LoadSprintsFromFile(sprintsPath)
 }
 
@@ -97,17 +95,15 @@ func ParseSprints(r io.Reader) ([]model.Sprint, error) {
 	return sprints, nil
 }
 
-// SaveSprints writes sprints to .beads/sprints.jsonl under repoPath.
+// SaveSprints writes sprints to the beads directory's sprints.jsonl.
+// Respects BEADS_DB, BEADS_DIR env vars and git worktree detection via GetBeadsDir.
 func SaveSprints(repoPath string, sprints []model.Sprint) error {
-	if repoPath == "" {
-		var err error
-		repoPath, err = os.Getwd()
-		if err != nil {
-			return fmt.Errorf("failed to get current working directory: %w", err)
-		}
+	beadsDir, err := GetBeadsDir(repoPath)
+	if err != nil {
+		return err
 	}
 
-	sprintsPath := filepath.Join(repoPath, ".beads", SprintsFileName)
+	sprintsPath := filepath.Join(beadsDir, SprintsFileName)
 	return SaveSprintsToFile(sprintsPath, sprints)
 }
 

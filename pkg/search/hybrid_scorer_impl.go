@@ -82,10 +82,11 @@ func (s *hybridScorer) Score(issueID string, textScore float64) (HybridScore, er
 }
 
 func (s *hybridScorer) Configure(weights Weights) error {
+	// Validate raw weights first (catches negative values before normalization can mask them)
 	if err := weights.Validate(); err != nil {
 		return err
 	}
-	s.weights = weights
+	s.weights = weights.Normalize()
 	return nil
 }
 

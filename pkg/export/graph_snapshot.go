@@ -221,7 +221,7 @@ func buildLayout(opts GraphSnapshotOptions) layoutResult {
 	var edges []layoutEdge
 	for _, iss := range opts.Issues {
 		for _, dep := range iss.Dependencies {
-			if dep == nil || dep.Type != model.DepBlocks {
+			if dep == nil || !dep.Type.IsBlocking() {
 				continue
 			}
 			if !nodeIDs[dep.DependsOnID] {
@@ -375,9 +375,12 @@ func renderSVG(opts GraphSnapshotOptions, layout layoutResult) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
 
-	return renderSVGToWriter(file, layout)
+	err = renderSVGToWriter(file, layout)
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	return err
 }
 
 func renderSVGToWriter(w io.Writer, layout layoutResult) error {

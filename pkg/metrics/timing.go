@@ -24,16 +24,21 @@ import (
 
 // enabled controls whether metrics are collected.
 // Defaults to true unless BV_METRICS=0 is set.
-var enabled = os.Getenv("BV_METRICS") != "0"
+// Uses atomic.Bool for thread-safe concurrent access.
+var enabled atomic.Bool
+
+func init() {
+	enabled.Store(os.Getenv("BV_METRICS") != "0")
+}
 
 // Enabled returns whether metrics collection is enabled.
 func Enabled() bool {
-	return enabled
+	return enabled.Load()
 }
 
 // SetEnabled allows programmatic control of metrics collection.
 func SetEnabled(e bool) {
-	enabled = e
+	enabled.Store(e)
 }
 
 // TimingMetric tracks timing statistics for a named operation.
@@ -54,7 +59,7 @@ func newTimingMetric(name string) *TimingMetric {
 // Record records a single timing measurement.
 // Thread-safe via atomic operations.
 func (m *TimingMetric) Record(d time.Duration) {
-	if !enabled {
+	if !enabled.Load() {
 		return
 	}
 	ns := d.Nanoseconds()
@@ -167,7 +172,7 @@ type TimingStats struct {
 //	    // ... function body
 //	}
 func Timer(m *TimingMetric) func() {
-	if !enabled || m == nil {
+	if !enabled.Load() || m == nil {
 		return func() {}
 	}
 	start := time.Now()
@@ -179,7 +184,7 @@ func Timer(m *TimingMetric) func() {
 // TimerWithCallback returns a function that records elapsed time
 // and also calls the provided callback with the duration.
 func TimerWithCallback(m *TimingMetric, cb func(time.Duration)) func() {
-	if !enabled || m == nil {
+	if !enabled.Load() || m == nil {
 		return func() {}
 	}
 	start := time.Now()

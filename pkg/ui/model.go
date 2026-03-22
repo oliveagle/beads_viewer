@@ -5451,9 +5451,7 @@ func (m Model) renderLabelGraphAnalysis() string {
 			if maxTitleLen < 20 {
 				maxTitleLen = 20
 			}
-			if len(title) > maxTitleLen {
-				title = title[:maxTitleLen-1] + "…"
-			}
+			title = truncateRunesHelper(title, maxTitleLen, "…")
 
 			height := r.CriticalPath.AllHeights[issueID]
 			line := fmt.Sprintf("%s %-12s [h=%d] %s", arrow, issueID, height, title)
@@ -5496,9 +5494,7 @@ func (m Model) renderLabelGraphAnalysis() string {
 			if maxTitleLen < 15 {
 				maxTitleLen = 15
 			}
-			if len(title) > maxTitleLen {
-				title = title[:maxTitleLen-1] + "…"
-			}
+			title = truncateRunesHelper(title, maxTitleLen, "…")
 
 			normalized := r.PageRank.Normalized[item.ID]
 			line := fmt.Sprintf("  %s %-12s PR=%.4f (%.0f%%) %s",

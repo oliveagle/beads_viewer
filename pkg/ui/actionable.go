@@ -75,7 +75,12 @@ func (m *ActionableModel) MoveUp() {
 		m.selectedItem--
 	} else if m.selectedTrack > 0 {
 		m.selectedTrack--
-		m.selectedItem = len(m.plan.Tracks[m.selectedTrack].Items) - 1
+		items := len(m.plan.Tracks[m.selectedTrack].Items)
+		if items > 0 {
+			m.selectedItem = items - 1
+		} else {
+			m.selectedItem = 0
+		}
 	}
 	m.ensureVisible()
 }

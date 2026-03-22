@@ -20,7 +20,7 @@ func newCacheMetric(name string) *CacheMetric {
 
 // Hit records a cache hit.
 func (m *CacheMetric) Hit() {
-	if !enabled {
+	if !enabled.Load() {
 		return
 	}
 	atomic.AddInt64(&m.hits, 1)
@@ -28,7 +28,7 @@ func (m *CacheMetric) Hit() {
 
 // Miss records a cache miss.
 func (m *CacheMetric) Miss() {
-	if !enabled {
+	if !enabled.Load() {
 		return
 	}
 	atomic.AddInt64(&m.misses, 1)

@@ -239,11 +239,9 @@ func (m CassSessionModal) formatSnippet(snippet string) string {
 		if line == "" {
 			continue
 		}
-		// Truncate long lines
+		// Truncate long lines (UTF-8 safe)
 		maxLineLen := m.width - 14 // Account for box padding
-		if len(line) > maxLineLen {
-			line = line[:maxLineLen-3] + "..."
-		}
+		line = truncateRunesHelper(line, maxLineLen, "...")
 		cleaned = append(cleaned, line)
 		if len(cleaned) >= 3 {
 			break

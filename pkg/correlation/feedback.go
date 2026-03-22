@@ -93,17 +93,22 @@ func (fs *FeedbackStore) Save(fb CorrelationFeedback) error {
 	if err != nil {
 		return fmt.Errorf("opening feedback file: %w", err)
 	}
-	defer file.Close()
 
 	// Marshal to JSON
 	data, err := json.Marshal(fb)
 	if err != nil {
+		file.Close()
 		return fmt.Errorf("marshaling feedback: %w", err)
 	}
 
 	// Write with newline
 	if _, err := file.Write(append(data, '\n')); err != nil {
+		file.Close()
 		return fmt.Errorf("writing feedback: %w", err)
+	}
+
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("closing feedback file: %w", err)
 	}
 
 	// Update cache

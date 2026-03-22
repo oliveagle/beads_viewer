@@ -334,7 +334,7 @@ func TestGetAllMetrics(t *testing.T) {
 
 func TestEnabled(t *testing.T) {
 	// Save original state
-	originalEnabled := enabled
+	originalEnabled := enabled.Load()
 
 	// Test enabled
 	SetEnabled(true)
@@ -356,7 +356,7 @@ func TestEnabled(t *testing.T) {
 	}
 
 	// Restore original state
-	SetEnabled(originalEnabled)
+	enabled.Store(originalEnabled)
 }
 
 func BenchmarkTimingMetric_Record(b *testing.B) {

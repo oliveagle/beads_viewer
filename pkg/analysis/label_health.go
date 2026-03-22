@@ -242,7 +242,7 @@ func ComputeCrossLabelFlow(issues []model.Issue, cfg LabelHealthConfig) CrossLab
 			continue
 		}
 		for _, dep := range blocked.Dependencies {
-			if dep == nil || dep.Type != model.DepBlocks {
+			if dep == nil || !dep.Type.IsBlocking() {
 				continue
 			}
 			blocker, ok := issueMap[dep.DependsOnID]
@@ -510,7 +510,7 @@ func ComputeLabelHealthForLabel(label string, issues []model.Issue, cfg LabelHea
 	seenOut := make(map[string]struct{})
 	for _, iss := range labeled {
 		for _, dep := range iss.Dependencies {
-			if dep == nil || dep.Type != model.DepBlocks {
+			if dep == nil || !dep.Type.IsBlocking() {
 				continue
 			}
 			blockerLabels := GetLabelsForIssue(issues, dep.DependsOnID)
@@ -855,14 +855,15 @@ func ExtractLabels(issues []model.Issue) LabelExtractionResult {
 
 			// Count by status
 			switch issue.Status {
-			case model.StatusOpen:
-				stats.OpenCount++
 			case model.StatusClosed, model.StatusTombstone:
 				stats.ClosedCount++
 			case model.StatusInProgress:
 				stats.InProgress++
 			case model.StatusBlocked:
 				stats.Blocked++
+			default:
+				// Open plus other non-closed statuses (deferred, draft, pinned, hooked, review)
+				stats.OpenCount++
 			}
 
 			// Count by priority
@@ -1208,7 +1209,7 @@ func computeSingleCascade(sourceLabel string, blockedIssues []model.Issue, flow 
 	blockerImpact := make(map[string]int) // issueID -> transitive unblock count
 	for _, blockedIssue := range blockedIssues {
 		for _, dep := range blockedIssue.Dependencies {
-			if dep == nil || dep.Type != model.DepBlocks {
+			if dep == nil || !dep.Type.IsBlocking() {
 				continue
 			}
 			blocker, exists := issueMap[dep.DependsOnID]
@@ -1419,7 +1420,7 @@ func ComputeLabelSubgraph(issues []model.Issue, label string) LabelSubgraph {
 	for _, id := range result.AllIssues {
 		iss := result.IssueMap[id]
 		for _, dep := range iss.Dependencies {
-			if dep == nil || dep.Type != model.DepBlocks {
+			if dep == nil || !dep.Type.IsBlocking() {
 				continue
 			}
 			blockerID := dep.DependsOnID
@@ -1966,15 +1967,17 @@ func ComputeLabelAttentionScores(issues []model.Issue, cfg LabelHealthConfig, no
 	result.Labels = scores
 	result.TotalLabels = len(scores)
 
-	// Extract top/low attention labels
+	// Extract top/low attention labels (avoid overlap for small sets)
 	topN := min(3, len(scores))
 	for i := 0; i < topN; i++ {
 		result.TopAttention = append(result.TopAttention, scores[i].Label)
 	}
-	for i := len(scores) - topN; i < len(scores); i++ {
-		if i >= 0 {
-			result.LowAttention = append(result.LowAttention, scores[i].Label)
-		}
+	lowStart := len(scores) - topN
+	if lowStart < topN {
+		lowStart = topN // Don't overlap with top attention labels
+	}
+	for i := lowStart; i < len(scores); i++ {
+		result.LowAttention = append(result.LowAttention, scores[i].Label)
 	}
 
 	return result

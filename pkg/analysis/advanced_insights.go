@@ -4,8 +4,6 @@ import (
 	"container/heap"
 	"context"
 	"sort"
-
-	"github.com/Dicklesworthstone/beads_viewer/pkg/model"
 )
 
 // intHeap implements heap.Interface for a min-heap of ints.
@@ -463,7 +461,7 @@ func (a *Analyzer) computeMarginalUnblocks(issueID string, alreadyCompleted map[
 			if dep == nil {
 				continue
 			}
-			if dep.Type != model.DepBlocks {
+			if !dep.Type.IsBlocking() {
 				continue
 			}
 
@@ -506,7 +504,7 @@ func (a *Analyzer) generateCoverageSet(limit int) *CoverageSetResult {
 			continue
 		}
 		for _, dep := range issue.Dependencies {
-			if dep == nil || dep.Type != model.DepBlocks {
+			if dep == nil || !dep.Type.IsBlocking() {
 				continue
 			}
 			if target, ok := a.issueMap[dep.DependsOnID]; ok && !isClosedLikeStatus(target.Status) {
@@ -654,7 +652,7 @@ func (a *Analyzer) generateKPaths(k int, pathLengthCap int) *KPathsResult {
 	for _, node := range nodes {
 		issue := a.issueMap[node.id]
 		for _, dep := range issue.Dependencies {
-			if dep == nil || dep.Type != model.DepBlocks {
+			if dep == nil || !dep.Type.IsBlocking() {
 				continue
 			}
 			// dep.DependsOnID blocks node.id
@@ -855,7 +853,7 @@ func (a *Analyzer) generateParallelCut(limit int) *ParallelCutResult {
 			continue
 		}
 		for _, dep := range issue.Dependencies {
-			if dep == nil || dep.Type != model.DepBlocks {
+			if dep == nil || !dep.Type.IsBlocking() {
 				continue
 			}
 			if openIssues[dep.DependsOnID] {

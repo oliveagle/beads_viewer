@@ -442,9 +442,11 @@ func downloadFile(url, destPath string, expectedSize int64) error {
 	if err != nil {
 		return fmt.Errorf("failed to create file: %w", err)
 	}
-	defer out.Close()
 
 	n, err := io.Copy(out, resp.Body)
+	if closeErr := out.Close(); err == nil {
+		err = closeErr
+	}
 	if err != nil {
 		return fmt.Errorf("failed to write file: %w", err)
 	}
@@ -543,10 +545,14 @@ func extractBinary(archivePath, destPath string) error {
 			if err != nil {
 				return fmt.Errorf("failed to create binary: %w", err)
 			}
-			defer out.Close()
 
-			if _, err := io.Copy(out, tr); err != nil {
-				return fmt.Errorf("failed to extract binary: %w", err)
+			_, copyErr := io.Copy(out, tr)
+			closeErr := out.Close()
+			if copyErr != nil {
+				return fmt.Errorf("failed to extract binary: %w", copyErr)
+			}
+			if closeErr != nil {
+				return fmt.Errorf("failed to flush extracted binary: %w", closeErr)
 			}
 			return nil
 		}
@@ -709,9 +715,11 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer destFile.Close()
 
 	_, err = io.Copy(destFile, sourceFile)
+	if closeErr := destFile.Close(); err == nil {
+		err = closeErr
+	}
 	return err
 }
 

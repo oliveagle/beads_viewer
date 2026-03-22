@@ -426,24 +426,22 @@ func (w *BackgroundWorker) Metrics() WorkerMetrics {
 }
 
 func (w *BackgroundWorker) openTraceFile() {
-	if w == nil || w.tracePath == "" || w.traceFile != nil {
+	if w == nil || w.tracePath == "" {
+		return
+	}
+	w.traceMu.Lock()
+	if w.traceFile != nil {
+		w.traceMu.Unlock()
 		return
 	}
 	f, err := os.OpenFile(w.tracePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
-		w.logEvent(LogLevelWarn, "trace_open_failed", map[string]any{
-			"path":  w.tracePath,
-			"error": err.Error(),
-		})
+		w.traceMu.Unlock()
+		log.Printf("background worker: trace_open_failed path=%s error=%v", w.tracePath, err)
 		return
 	}
-	// Close the file unless we successfully take ownership.
-	defer func() {
-		if w.traceFile != f {
-			_ = f.Close()
-		}
-	}()
 	w.traceFile = f
+	w.traceMu.Unlock()
 }
 
 func (w *BackgroundWorker) closeTraceFile() {
@@ -671,6 +669,7 @@ func (w *BackgroundWorker) runProcessLoop(done chan struct{}) {
 	w.mu.Lock()
 	if w.state == WorkerStopped {
 		w.mu.Unlock()
+		close(done)
 		return
 	}
 	w.loopCtx = loopCtx

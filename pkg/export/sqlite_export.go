@@ -530,28 +530,25 @@ func (e *SQLiteExporter) chunkIfNeeded(outputDir, dbPath string) error {
 	if err != nil {
 		return fmt.Errorf("open database for hashing: %w", err)
 	}
+	defer f.Close()
 
 	hasher := sha256.New()
 	if _, err := io.Copy(hasher, f); err != nil {
-		f.Close()
 		return fmt.Errorf("hash database: %w", err)
 	}
 	config.Hash = hex.EncodeToString(hasher.Sum(nil))
 
 	if info.Size() < e.Config.ChunkThreshold {
-		f.Close()
 		config.Chunked = false
 		return writeJSON(filepath.Join(outputDir, "beads.sqlite3.config.json"), config)
 	}
 
 	// Reset file position for chunking
 	if _, err := f.Seek(0, 0); err != nil {
-		f.Close()
 		return fmt.Errorf("seek database for chunking: %w", err)
 	}
 
 	// Chunk the database (file f is already open and seeked to start)
-	defer f.Close()
 
 	chunksDir := filepath.Join(outputDir, "chunks")
 	if err := os.MkdirAll(chunksDir, 0755); err != nil {
@@ -611,11 +608,14 @@ func writeJSON(path string, data interface{}) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "  ")
-	return enc.Encode(data)
+	err = enc.Encode(data)
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	return err
 }
 
 // GetExportedIssues converts issues to ExportIssue format.

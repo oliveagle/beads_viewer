@@ -239,15 +239,22 @@ func (g *GitLoader) loadFileFromGit(sha, path string) ([]model.Issue, error) {
 
 func (c *revisionCache) get(sha string) ([]model.Issue, bool) {
 	c.mu.RLock()
-	defer c.mu.RUnlock()
-
 	entry, ok := c.entries[sha]
 	if !ok {
+		c.mu.RUnlock()
 		return nil, false
 	}
 
 	// Check if entry is still valid
 	if time.Since(entry.loadedAt) > c.maxAge {
+		c.mu.RUnlock()
+		// Evict expired entry
+		c.mu.Lock()
+		// Re-check under write lock (another goroutine may have already evicted)
+		if e, still := c.entries[sha]; still && time.Since(e.loadedAt) > c.maxAge {
+			delete(c.entries, sha)
+		}
+		c.mu.Unlock()
 		return nil, false
 	}
 
@@ -256,6 +263,7 @@ func (c *revisionCache) get(sha string) ([]model.Issue, bool) {
 	for i, issue := range entry.issues {
 		issues[i] = issue.Clone()
 	}
+	c.mu.RUnlock()
 	return issues, true
 }
 

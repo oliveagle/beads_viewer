@@ -2954,7 +2954,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Focus-specific key handling — runs BEFORE list-level view
 			// toggles so that views like board/graph/tree/history receive
 			// keys (h, l, g, f, etc.) for their own navigation first.
+			//
+			// Each case dispatches to its handler for keys the handler
+			// actually uses, then falls through to the view-toggle block
+			// for unhandled keys (like view-switch keys b/g/a/i/E/etc.)
+			// so cross-view switching still works.
 			// ═══════════════════════════════════════════════════════════════
+			keyStr := msg.String()
+			viewToggleHandled := false
+
 			switch m.focused {
 			case focusRecipePicker:
 				m = m.handleRecipePickerKeys(msg)
@@ -2969,12 +2977,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 
 			case focusInsights:
-				m = m.handleInsightsKeys(msg)
-				return m, nil
+				// Insights uses h/l for panel nav — intercept those.
+				// Let other view-toggle keys (b/g/a/E/f/etc.) fall through.
+				switch keyStr {
+				case "h", "l",
+					"j", "k", "up", "down", "left", "right",
+					"ctrl+j", "ctrl+k", "tab",
+					"e", "x", "m", "enter", "esc":
+					m = m.handleInsightsKeys(msg)
+					viewToggleHandled = true
+				}
 
 			case focusBoard:
-				m = m.handleBoardKeys(msg)
-				return m, nil
+				// Board uses h/l for nav — intercept those.
+				// Note: board's "g" (gg-combo) is sacrificed so "g" falls
+				// through to the view-toggle block for graph switching.
+				// Let other view-toggle keys (a/i/E/f/etc.) fall through.
+				switch keyStr {
+				case "h", "l",
+					"j", "k", "left", "right", "up", "down",
+					"home", "end", "G", "ctrl+d", "ctrl+u",
+					"1", "2", "3", "4", "H", "L", "0", "$",
+					"/", "n", "N", "y", "o", "c", "r", "s", "e", "d",
+					"tab", "enter", "ctrl+j", "ctrl+k":
+					m = m.handleBoardKeys(msg)
+					viewToggleHandled = true
+				}
 
 			case focusLabelDashboard:
 				if selectedLabel, cmd := m.labelDashboard.Update(msg); selectedLabel != "" {
@@ -2985,7 +3013,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, cmd
 				}
 				// Open detail modal on 'h'
-				if msg.String() == "h" && len(m.labelDashboard.labels) > 0 {
+				if keyStr == "h" && len(m.labelDashboard.labels) > 0 {
 					idx := m.labelDashboard.cursor
 					if idx >= 0 && idx < len(m.labelDashboard.labels) {
 						lh := m.labelDashboard.labels[idx]
@@ -2997,7 +3025,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 				// Open drilldown overlay on 'd'
-				if msg.String() == "d" && len(m.labelDashboard.labels) > 0 {
+				if keyStr == "d" && len(m.labelDashboard.labels) > 0 {
 					idx := m.labelDashboard.cursor
 					if idx >= 0 && idx < len(m.labelDashboard.labels) {
 						lh := m.labelDashboard.labels[idx]
@@ -3010,32 +3038,81 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 
 			case focusGraph:
-				m = m.handleGraphKeys(msg)
-				return m, nil
+				// Graph uses h/l for nav — intercept those.
+				// Let other view-toggle keys (b/a/i/E/f/etc.) fall through.
+				switch keyStr {
+				case "h", "l",
+					"j", "k", "left", "right", "up", "down",
+					"H", "L", "ctrl+d", "ctrl+u", "pgup", "pgdown",
+					"enter":
+					m = m.handleGraphKeys(msg)
+					viewToggleHandled = true
+				}
 
 			case focusTree:
-				m = m.handleTreeKeys(msg)
-				return m, nil
+				// Tree uses h/l for nav — intercept those.
+				// Note: tree's "g" (jump-to-top) is sacrificed so "g" falls
+				// through to the view-toggle block for graph switching.
+				// Let other view-toggle keys (b/a/i/f/etc.) fall through.
+				switch keyStr {
+				case "h", "l",
+					"j", "k", "left", "right", "up", "down",
+					"G", "o", "O", "E", "esc",
+					"enter", " ", "tab",
+					"ctrl+d", "ctrl+u", "pgup", "pgdown":
+					m = m.handleTreeKeys(msg)
+					viewToggleHandled = true
+				}
 
 			case focusActionable:
-				m = m.handleActionableKeys(msg)
-				return m, nil
+				// Actionable uses j/k/enter — no conflicts with view-toggles.
+				switch keyStr {
+				case "j", "k", "up", "down", "enter":
+					m = m.handleActionableKeys(msg)
+					viewToggleHandled = true
+				}
 
 			case focusHistory:
-				m = m.handleHistoryKeys(msg)
-				return m, nil
+				// History uses h/f/g for nav — intercept those.
+				// Let other view-toggle keys (b/a/i/E/etc.) fall through.
+				// In search or file-tree mode, all keys go to the handler.
+				if m.historyView.IsSearchActive() || m.historyView.FileTreeHasFocus() {
+					m = m.handleHistoryKeys(msg)
+					viewToggleHandled = true
+				} else {
+					switch keyStr {
+					case "h", "f", "g",
+						"j", "k", "up", "down",
+						"J", "K", "v", "tab", "enter",
+						"y", "c", "F", "o", "/":
+						m = m.handleHistoryKeys(msg)
+						viewToggleHandled = true
+					}
+				}
 
 			case focusSprint:
-				m = m.handleSprintKeys(msg)
-				return m, nil
+				// Sprint uses only P/esc/j/k — no conflicts with view-toggles.
+				switch keyStr {
+				case "P", "esc", "j", "k", "up", "down":
+					m = m.handleSprintKeys(msg)
+					viewToggleHandled = true
+				}
 
 			case focusFlowMatrix:
-				m = m.handleFlowMatrixKeys(msg)
-				return m, nil
+				// Flow matrix uses f/g for close/go-to-start — intercept those.
+				// Let other view-toggle keys fall through.
+				switch keyStr {
+				case "f", "g",
+					"j", "k", "up", "down",
+					"G", "end", "home",
+					"tab", "enter", "esc", "q":
+					m = m.handleFlowMatrixKeys(msg)
+					viewToggleHandled = true
+				}
 
 			case focusDetail:
 				// Intercept "O" in detail view for editor dispatch (bv-134)
-				if msg.String() == "O" {
+				if keyStr == "O" {
 					if editorCmd := m.openInEditor(); editorCmd != nil {
 						return m, editorCmd
 					}
@@ -3049,9 +3126,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Fall through to list-level view toggles below
 			}
 
+			if viewToggleHandled {
+				return m, nil
+			}
+
 			// ═══════════════════════════════════════════════════════════════
-			// List-level view toggles — only reachable when focusList is
-			// active (all other focus states returned above).
+			// View toggle keys — reachable from focusList and also from
+			// other views when the key isn't claimed by their handler
+			// (enabling cross-view switching, e.g. 'g' from board -> graph).
 			// ═══════════════════════════════════════════════════════════════
 			switch msg.String() {
 			case "b":

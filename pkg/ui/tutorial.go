@@ -536,11 +536,8 @@ func (m TutorialModel) renderTOC(pages []TutorialPage) string {
 			style = selectedStyle
 		}
 
-		// Truncate long titles
-		title := page.Title
-		if len(title) > 14 {
-			title = title[:12] + "…"
-		}
+		// Truncate long titles (rune-safe)
+		title := truncateRunesHelper(page.Title, 14, "…")
 
 		// Viewed indicator
 		viewed := ""

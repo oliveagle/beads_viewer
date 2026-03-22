@@ -508,27 +508,49 @@ func ComputeLabelHealthForLabel(label string, issues []model.Issue, cfg LabelHea
 	flow := FlowMetrics{}
 	seenIn := make(map[string]struct{})
 	seenOut := make(map[string]struct{})
+	labeledSet := make(map[string]bool, len(labeled))
 	for _, iss := range labeled {
+		labeledSet[iss.ID] = true
+	}
+	// Incoming: other labels' issues block this label's issues
+	for _, iss := range labeled {
+		hasExternalBlocker := false
 		for _, dep := range iss.Dependencies {
 			if dep == nil || !dep.Type.IsBlocking() {
 				continue
 			}
 			blockerLabels := GetLabelsForIssue(issues, dep.DependsOnID)
-			targetLabels := iss.Labels
-			// incoming: other label blocks this
 			for _, bl := range blockerLabels {
 				if bl != label {
 					flow.IncomingDeps++
 					seenIn[bl] = struct{}{}
+					hasExternalBlocker = true
 				}
 			}
-			// outgoing: this label blocks others
-			for _, tl := range targetLabels {
-				if tl == label {
-					continue
+		}
+		if hasExternalBlocker {
+			flow.BlockedByExternal++
+		}
+	}
+	// Outgoing: this label's issues block other labels' issues
+	for _, other := range issues {
+		if labeledSet[other.ID] {
+			continue
+		}
+		for _, dep := range other.Dependencies {
+			if dep == nil || !dep.Type.IsBlocking() {
+				continue
+			}
+			if labeledSet[dep.DependsOnID] {
+				otherLabels := other.Labels
+				for _, ol := range otherLabels {
+					if ol != label {
+						flow.OutgoingDeps++
+						seenOut[ol] = struct{}{}
+					}
 				}
-				flow.OutgoingDeps++
-				seenOut[tl] = struct{}{}
+				flow.BlockingExternal++
+				break // count this other issue once
 			}
 		}
 	}
@@ -2035,7 +2057,7 @@ func computeLabelAttention(label string, issues []model.Issue, issueMap map[stri
 				continue
 			}
 			for _, dep := range other.Dependencies {
-				if dep != nil && dep.DependsOnID == iss.ID && dep.Type == model.DepBlocks {
+				if dep != nil && dep.DependsOnID == iss.ID && dep.Type.IsBlocking() {
 					blockImpact++
 				}
 			}

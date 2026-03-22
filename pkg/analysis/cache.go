@@ -617,8 +617,20 @@ func (ca *CachedAnalyzer) Analyze() GraphStats {
 		hubs:              stats.hubs,
 		authorities:       stats.authorities,
 		criticalPathScore: stats.criticalPathScore,
+		pageRankRank:      stats.pageRankRank,
+		betweennessRank:   stats.betweennessRank,
+		eigenvectorRank:   stats.eigenvectorRank,
+		hubsRank:          stats.hubsRank,
+		authoritiesRank:   stats.authoritiesRank,
+		criticalPathRank:  stats.criticalPathRank,
+		inDegreeRank:      stats.inDegreeRank,
+		outDegreeRank:     stats.outDegreeRank,
+		coreNumber:        stats.coreNumber,
+		articulation:      stats.articulation,
+		slack:             stats.slack,
 		cycles:            stats.cycles,
 		phase2Ready:       true,
+		status:            stats.status,
 	}
 }
 

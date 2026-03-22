@@ -111,7 +111,6 @@ func appendToGitignore(path string, pattern string) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
 
 	// Build the content to append based on whether file has existing content
 	var toWrite string
@@ -128,9 +127,9 @@ func appendToGitignore(path string, pattern string) error {
 		toWrite += "\n# bv (beads viewer) local config and caches\n" + pattern + "\n"
 	}
 
-	if _, err := file.WriteString(toWrite); err != nil {
-		return err
+	_, err = file.WriteString(toWrite)
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
 	}
-
-	return nil
+	return err
 }

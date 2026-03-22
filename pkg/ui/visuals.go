@@ -165,10 +165,10 @@ func RenderRepoBadge(prefix string) string {
 	if prefix == "" {
 		return ""
 	}
-	// Uppercase and limit to 4 chars for compactness
+	// Uppercase and limit to 4 runes for compactness
 	display := strings.ToUpper(prefix)
-	if len(display) > 4 {
-		display = display[:4]
+	if runes := []rune(display); len(runes) > 4 {
+		display = string(runes[:4])
 	}
 
 	color := GetRepoColor(prefix)

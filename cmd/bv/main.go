@@ -1286,7 +1286,11 @@ func main() {
 	}
 
 	// Get project directory for baseline operations (moved up to allow info check without loading issues)
-	projectDir, _ := os.Getwd()
+	projectDir, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error getting current directory: %v\n", err)
+		os.Exit(1)
+	}
 	baselinePath := baseline.DefaultPath(projectDir)
 
 	// Handle --baseline-info
@@ -1690,7 +1694,10 @@ func main() {
 			}
 
 			// Load and run pre-export hooks (bv-qjc.3)
-			cwd, _ := os.Getwd()
+			cwd, cwdErr := os.Getwd()
+			if cwdErr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: could not get working directory for hooks: %v\n", cwdErr)
+			}
 			var pagesExecutor *hooks.Executor
 			if !*noHooks {
 				hookLoader := hooks.NewLoader(hooks.WithProjectDir(cwd))
@@ -1850,7 +1857,10 @@ func main() {
 				}
 			} else {
 				// Single-repo mode: watch current directory's issues.jsonl
-				cwd, _ := os.Getwd()
+				cwd, cwdErr := os.Getwd()
+				if cwdErr != nil {
+					fmt.Fprintf(os.Stderr, "Warning: could not get working directory for watcher: %v\n", cwdErr)
+				}
 				issuesFile := filepath.Join(cwd, ".beads", "issues.jsonl")
 				watchFiles = append(watchFiles, issuesFile)
 			}
@@ -2155,8 +2165,11 @@ func main() {
 		}
 
 		// Get project name from current directory
-		cwd, _ := os.Getwd()
-		projectName := filepath.Base(cwd)
+		cwd, cwdErr := os.Getwd()
+		projectName := "project"
+		if cwdErr == nil {
+			projectName = filepath.Base(cwd)
+		}
 
 		// Check if HTML export requested (interactive graph)
 		if strings.HasSuffix(strings.ToLower(*exportGraph), ".html") || *exportGraph == "html" || *exportGraph == "interactive" {
@@ -4880,7 +4893,10 @@ func main() {
 		fmt.Printf("Exporting to %s...\n", *exportFile)
 
 		// Load and run pre-export hooks
-		cwd, _ := os.Getwd()
+		cwd, cwdErr := os.Getwd()
+		if cwdErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not get working directory for hooks: %v\n", cwdErr)
+		}
 		var executor *hooks.Executor
 		if !*noHooks {
 			hookLoader := hooks.NewLoader(hooks.WithProjectDir(cwd))
@@ -5061,7 +5077,7 @@ func countEdges(issues []model.Issue) int {
 	count := 0
 	for _, issue := range issues {
 		for _, dep := range issue.Dependencies {
-			if dep != nil && dep.Type == model.DepBlocks {
+			if dep != nil && dep.Type.IsBlocking() {
 				count++
 			}
 		}
@@ -5389,7 +5405,7 @@ func applyRecipeFilters(issues []model.Issue, r *recipe.Recipe) []model.Issue {
 		if f.HasBlockers != nil {
 			hasOpenBlockers := false
 			for _, dep := range issue.Dependencies {
-				if dep != nil && dep.Type == model.DepBlocks && openBlockers[dep.DependsOnID] {
+				if dep != nil && dep.Type.IsBlocking() && openBlockers[dep.DependsOnID] {
 					hasOpenBlockers = true
 					break
 				}
@@ -5403,7 +5419,7 @@ func applyRecipeFilters(issues []model.Issue, r *recipe.Recipe) []model.Issue {
 		if f.Actionable != nil && *f.Actionable {
 			hasOpenBlockers := false
 			for _, dep := range issue.Dependencies {
-				if dep != nil && dep.Type == model.DepBlocks && openBlockers[dep.DependsOnID] {
+				if dep != nil && dep.Type.IsBlocking() && openBlockers[dep.DependsOnID] {
 					hasOpenBlockers = true
 					break
 				}
@@ -5452,30 +5468,29 @@ func applyRecipeSort(issues []model.Issue, r *recipe.Recipe) []model.Issue {
 	}
 
 	sort.SliceStable(issues, func(i, j int) bool {
-		var less bool
+		// For descending, swap comparison operands
+		a, b := i, j
+		if !ascending {
+			a, b = j, i
+		}
 
 		switch s.Field {
 		case "priority":
-			less = issues[i].Priority < issues[j].Priority
+			return issues[a].Priority < issues[b].Priority
 		case "created":
-			less = issues[i].CreatedAt.Before(issues[j].CreatedAt)
+			return issues[a].CreatedAt.Before(issues[b].CreatedAt)
 		case "updated":
-			less = issues[i].UpdatedAt.Before(issues[j].UpdatedAt)
+			return issues[a].UpdatedAt.Before(issues[b].UpdatedAt)
 		case "title":
-			less = strings.ToLower(issues[i].Title) < strings.ToLower(issues[j].Title)
+			return strings.ToLower(issues[a].Title) < strings.ToLower(issues[b].Title)
 		case "id":
-			less = naturalLess(issues[i].ID, issues[j].ID)
+			return naturalLess(issues[a].ID, issues[b].ID)
 		case "status":
-			less = issues[i].Status < issues[j].Status
+			return issues[a].Status < issues[b].Status
 		default:
 			// Unknown sort field, maintain order
 			return false
 		}
-
-		if ascending {
-			return less
-		}
-		return !less
 	})
 
 	return issues
@@ -7430,23 +7445,48 @@ func generateHistoryForExport(issues []model.Issue) (*TimeTravelHistory, error) 
 		}
 	}
 
-	// Check for closed beads (status = closed)
-	issueStatusMap := make(map[string]bool)
+	// Build map of bead ID -> latest commit SHA that touched it before/at ClosedAt.
+	// This attributes closure only to the most relevant commit, not every commit.
+	closedBeadCommit := make(map[string]string) // beadID -> commitSHA
 	for _, issue := range issues {
-		issueStatusMap[issue.ID] = issue.Status == model.StatusClosed
+		if issue.Status != model.StatusClosed || issue.ClosedAt == nil {
+			continue
+		}
+		// Find the commit closest to (but not after) the closure time
+		var bestSHA string
+		var bestDist time.Duration = -1
+		for sha, commit := range commitMap {
+			for _, id := range commit.BeadsAdded {
+				if id != issue.ID {
+					continue
+				}
+				commitDate, _ := time.Parse(time.RFC3339, commit.Date)
+				if commitDate.IsZero() {
+					continue
+				}
+				dist := issue.ClosedAt.Sub(commitDate)
+				if dist >= 0 && (bestDist < 0 || dist < bestDist) {
+					bestSHA = sha
+					bestDist = dist
+				}
+			}
+		}
+		if bestSHA != "" {
+			closedBeadCommit[issue.ID] = bestSHA
+		}
 	}
 
 	// Convert map to sorted slice
 	var commits []TimeTravelCommit
 	for _, commit := range commitMap {
-		// Deduplicate beads_added and populate beads_closed
+		// Deduplicate beads_added
 		seen := make(map[string]bool)
 		var dedupedAdded []string
 		for _, id := range commit.BeadsAdded {
 			if !seen[id] {
 				seen[id] = true
 				dedupedAdded = append(dedupedAdded, id)
-				if issueStatusMap[id] {
+				if closedBeadCommit[id] == commit.SHA {
 					commit.BeadsClosed = append(commit.BeadsClosed, id)
 				}
 			}

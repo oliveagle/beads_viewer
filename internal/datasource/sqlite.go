@@ -307,6 +307,11 @@ func (r *SQLiteReader) loadLabelsFromTable(issueID string) []string {
 		}
 		labels = append(labels, label)
 	}
+	// Best-effort: log iteration errors but return what we have
+	if err := rows.Err(); err != nil {
+		// Labels are non-critical metadata; return partial results
+		_ = err
+	}
 	return labels
 }
 

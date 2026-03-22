@@ -2794,6 +2794,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Handle keys when not filtering
 		if m.list.FilterState() != list.Filtering {
+			// ═══════════════════════════════════════════════════════════════
+			// Truly global keys: ctrl+c, q, esc, tab, split-pane resize
+			// These run regardless of which view has focus.
+			// ═══════════════════════════════════════════════════════════════
 			switch msg.String() {
 			case "ctrl+c":
 				return m, tea.Quit
@@ -2824,6 +2828,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				if m.isBoardView {
 					m.isBoardView = false
+					m.focused = focusList
+					return m, nil
+				}
+				if m.isActionableView {
+					m.isActionableView = false
+					m.focused = focusList
+					return m, nil
+				}
+				if m.isHistoryView {
+					m.isHistoryView = false
+					m.focused = focusList
+					return m, nil
+				}
+				if m.showLabelPicker {
+					m.showLabelPicker = false
+					m.focused = focusList
+					return m, nil
+				}
+				if m.focused == focusLabelDashboard {
+					m.focused = focusList
+					return m, nil
+				}
+				if m.focused == focusTree {
+					m.focused = focusList
+					return m, nil
+				}
+				if m.focused == focusSprint {
 					m.focused = focusList
 					return m, nil
 				}
@@ -2917,7 +2948,112 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					m.recalculateSplitPaneSizes()
 				}
+			}
 
+			// ═══════════════════════════════════════════════════════════════
+			// Focus-specific key handling — runs BEFORE list-level view
+			// toggles so that views like board/graph/tree/history receive
+			// keys (h, l, g, f, etc.) for their own navigation first.
+			// ═══════════════════════════════════════════════════════════════
+			switch m.focused {
+			case focusRecipePicker:
+				m = m.handleRecipePickerKeys(msg)
+				return m, nil
+
+			case focusRepoPicker:
+				m = m.handleRepoPickerKeys(msg)
+				return m, nil
+
+			case focusLabelPicker:
+				m = m.handleLabelPickerKeys(msg)
+				return m, nil
+
+			case focusInsights:
+				m = m.handleInsightsKeys(msg)
+				return m, nil
+
+			case focusBoard:
+				m = m.handleBoardKeys(msg)
+				return m, nil
+
+			case focusLabelDashboard:
+				if selectedLabel, cmd := m.labelDashboard.Update(msg); selectedLabel != "" {
+					// Filter list by selected label and jump back to list view
+					m.currentFilter = "label:" + selectedLabel
+					m.applyFilter()
+					m.focused = focusList
+					return m, cmd
+				}
+				// Open detail modal on 'h'
+				if msg.String() == "h" && len(m.labelDashboard.labels) > 0 {
+					idx := m.labelDashboard.cursor
+					if idx >= 0 && idx < len(m.labelDashboard.labels) {
+						lh := m.labelDashboard.labels[idx]
+						m.showLabelHealthDetail = true
+						m.labelHealthDetail = &lh
+						// Precompute cross-label flows for this label
+						m.labelHealthDetailFlow = m.getCrossFlowsForLabel(lh.Label)
+						return m, nil
+					}
+				}
+				// Open drilldown overlay on 'd'
+				if msg.String() == "d" && len(m.labelDashboard.labels) > 0 {
+					idx := m.labelDashboard.cursor
+					if idx >= 0 && idx < len(m.labelDashboard.labels) {
+						lh := m.labelDashboard.labels[idx]
+						m.labelDrilldownLabel = lh.Label
+						m.labelDrilldownIssues = m.filterIssuesByLabel(lh.Label)
+						m.showLabelDrilldown = true
+						return m, nil
+					}
+				}
+				return m, nil
+
+			case focusGraph:
+				m = m.handleGraphKeys(msg)
+				return m, nil
+
+			case focusTree:
+				m = m.handleTreeKeys(msg)
+				return m, nil
+
+			case focusActionable:
+				m = m.handleActionableKeys(msg)
+				return m, nil
+
+			case focusHistory:
+				m = m.handleHistoryKeys(msg)
+				return m, nil
+
+			case focusSprint:
+				m = m.handleSprintKeys(msg)
+				return m, nil
+
+			case focusFlowMatrix:
+				m = m.handleFlowMatrixKeys(msg)
+				return m, nil
+
+			case focusDetail:
+				// Intercept "O" in detail view for editor dispatch (bv-134)
+				if msg.String() == "O" {
+					if editorCmd := m.openInEditor(); editorCmd != nil {
+						return m, editorCmd
+					}
+					return m, nil
+				}
+				m.viewport, cmd = m.viewport.Update(msg)
+				cmds = append(cmds, cmd)
+				return m, tea.Batch(cmds...)
+
+			case focusList:
+				// Fall through to list-level view toggles below
+			}
+
+			// ═══════════════════════════════════════════════════════════════
+			// List-level view toggles — only reachable when focusList is
+			// active (all other focus states returned above).
+			// ═══════════════════════════════════════════════════════════════
+			switch msg.String() {
 			case "b":
 				m.clearAttentionOverlay()
 				m.isBoardView = !m.isBoardView
@@ -3192,97 +3328,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.focused = focusLabelPicker
 				return m, nil
 
+			case "O":
+				// Open in terminal editor (bv-134)
+				if editorCmd := m.openInEditor(); editorCmd != nil {
+					return m, editorCmd
+				}
+				return m, nil
 			}
 
-			// Focus-specific key handling
-			switch m.focused {
-			case focusRecipePicker:
-				m = m.handleRecipePickerKeys(msg)
-
-			case focusRepoPicker:
-				m = m.handleRepoPickerKeys(msg)
-
-			case focusLabelPicker:
-				m = m.handleLabelPickerKeys(msg)
-
-			case focusInsights:
-				m = m.handleInsightsKeys(msg)
-
-			case focusBoard:
-				m = m.handleBoardKeys(msg)
-
-			case focusLabelDashboard:
-				if selectedLabel, cmd := m.labelDashboard.Update(msg); selectedLabel != "" {
-					// Filter list by selected label and jump back to list view
-					m.currentFilter = "label:" + selectedLabel
-					m.applyFilter()
-					m.focused = focusList
-					return m, cmd
-				}
-				// Open detail modal on 'h'
-				if msg.String() == "h" && len(m.labelDashboard.labels) > 0 {
-					idx := m.labelDashboard.cursor
-					if idx >= 0 && idx < len(m.labelDashboard.labels) {
-						lh := m.labelDashboard.labels[idx]
-						m.showLabelHealthDetail = true
-						m.labelHealthDetail = &lh
-						// Precompute cross-label flows for this label
-						m.labelHealthDetailFlow = m.getCrossFlowsForLabel(lh.Label)
-						return m, nil
-					}
-				}
-				// Open drilldown overlay on 'd'
-				if msg.String() == "d" && len(m.labelDashboard.labels) > 0 {
-					idx := m.labelDashboard.cursor
-					if idx >= 0 && idx < len(m.labelDashboard.labels) {
-						lh := m.labelDashboard.labels[idx]
-						m.labelDrilldownLabel = lh.Label
-						m.labelDrilldownIssues = m.filterIssuesByLabel(lh.Label)
-						m.showLabelDrilldown = true
-						return m, nil
-					}
-				}
-
-			case focusGraph:
-				m = m.handleGraphKeys(msg)
-
-			case focusTree:
-				m = m.handleTreeKeys(msg)
-
-			case focusActionable:
-				m = m.handleActionableKeys(msg)
-
-			case focusHistory:
-				m = m.handleHistoryKeys(msg)
-
-			case focusSprint:
-				m = m.handleSprintKeys(msg)
-
-			case focusFlowMatrix:
-				m = m.handleFlowMatrixKeys(msg)
-
-			case focusList:
-				// Intercept "O" before handleListKeys so we can return a tea.Cmd
-				// for terminal editor dispatch (bv-134)
-				if msg.String() == "O" {
-					if editorCmd := m.openInEditor(); editorCmd != nil {
-						return m, editorCmd
-					}
-					return m, nil
-				}
-				m = m.handleListKeys(msg)
-
-			case focusDetail:
-				// Intercept "O" in detail view for editor dispatch (bv-134)
-				if msg.String() == "O" {
-					if editorCmd := m.openInEditor(); editorCmd != nil {
-						return m, editorCmd
-					}
-					return m, nil
-				}
-				m.viewport, cmd = m.viewport.Update(msg)
-				cmds = append(cmds, cmd)
-			}
+			// Remaining list-level keys handled by handleListKeys
+			m = m.handleListKeys(msg)
 		}
 
 	case tea.MouseMsg:

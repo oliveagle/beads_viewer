@@ -738,8 +738,9 @@ func priorityToScore(priority int) float64 {
 
 // calculateConfidence determines how confident we are in the recommendation
 func calculateConfidence(signals int, strength float64, scoreDelta float64, thresholds RecommendationThresholds) float64 {
-	// Base confidence from number of signals (max 7: PageRank, Betweenness, unblocks, staleness, time-to-impact, urgency, risk)
-	signalConfidence := float64(signals) / 7.0
+	// Base confidence from number of signals (max 10: PageRank, Betweenness, unblocks,
+	// staleness, time-to-impact, urgency, risk, articulation, k-core, slack)
+	signalConfidence := float64(signals) / 10.0
 	if signalConfidence > 1.0 {
 		signalConfidence = 1.0
 	}

@@ -503,7 +503,8 @@ func filterCodeFiles(files []FileChange) []FileChange {
 	return result
 }
 
-// isHexString checks if a string contains only hexadecimal characters
+// isHexString checks if a string contains only lowercase hexadecimal characters.
+// Git SHAs from `git log --format=%H` are always lowercase.
 func isHexString(s string) bool {
 	for _, c := range s {
 		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {

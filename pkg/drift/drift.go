@@ -80,7 +80,9 @@ type Calculator struct {
 	issues   []model.Issue
 }
 
-// NewCalculator creates a drift calculator with the given baseline and current snapshot
+// NewCalculator creates a drift calculator with the given baseline and current snapshot.
+// Both bl and current must be non-nil; passing nil for either will cause Calculate() to
+// return an empty result with no alerts.
 func NewCalculator(bl *baseline.Baseline, current *baseline.Baseline, cfg *Config) *Calculator {
 	if cfg == nil {
 		cfg = DefaultConfig()
@@ -102,6 +104,11 @@ func (c *Calculator) SetIssues(issues []model.Issue) {
 func (c *Calculator) Calculate() *Result {
 	result := &Result{
 		Alerts: make([]Alert, 0),
+	}
+
+	// Guard against nil baseline or current snapshot
+	if c.baseline == nil || c.current == nil {
+		return result
 	}
 
 	// Check for new cycles (critical)

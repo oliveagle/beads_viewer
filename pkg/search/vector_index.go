@@ -152,11 +152,24 @@ func LoadVectorIndex(path string) (*VectorIndex, error) {
 }
 
 func (idx *VectorIndex) Save(path string) error {
-	// Acquire sorted IDs before locking to avoid deadlock (sortedIDs needs Write lock if dirty)
-	ids := idx.sortedIDs()
+	// Hold a single write lock for the entire operation to prevent a TOCTOU race:
+	// previously, sortedIDs() released its lock before Save re-acquired RLock,
+	// so a concurrent Remove could make the header entry count disagree with the
+	// number of entries actually written, corrupting the file on Load.
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
 
-	idx.mu.RLock()
-	defer idx.mu.RUnlock()
+	// Rebuild the sorted-ID cache inline (mirrors sortedIDs logic).
+	if idx.idsDirty || idx.idsCache == nil {
+		ids := make([]string, 0, len(idx.entries))
+		for id := range idx.entries {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		idx.idsCache = ids
+		idx.idsDirty = false
+	}
+	ids := idx.idsCache
 
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {

@@ -71,7 +71,7 @@ func findOneCycleInSCC(g graph.Directed, scc []graph.Node) []graph.Node {
 	// This avoids repeated filtering and sorting during traversal
 	adj := make(map[int64][]graph.Node, len(scc))
 	for _, u := range scc {
-		to := g.To(u.ID())
+		to := g.From(u.ID())
 		var neighbors []graph.Node
 		for to.Next() {
 			n := to.Node()

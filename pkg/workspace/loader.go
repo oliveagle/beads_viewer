@@ -47,8 +47,12 @@ func NewAggregateLoader(config *Config, workspaceRoot string) *AggregateLoader {
 	}
 }
 
-// SetLogger sets a custom logger for error reporting
+// SetLogger sets a custom logger for error reporting.
+// Passing nil substitutes a discard logger to prevent nil pointer dereferences.
 func (l *AggregateLoader) SetLogger(logger *log.Logger) {
+	if logger == nil {
+		logger = log.New(io.Discard, "", 0)
+	}
 	l.logger = logger
 }
 

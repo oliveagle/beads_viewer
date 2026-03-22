@@ -134,6 +134,9 @@ func validateSQLite(source *DataSource, opts ValidationOptions) error {
 		}
 		columns[strings.ToLower(name)] = true
 	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("error iterating column info: %w", err)
+	}
 
 	requiredCols := []string{"id", "title", "status"}
 	for _, col := range requiredCols {

@@ -103,6 +103,13 @@ func TestRobotFlagsOutputJSON(t *testing.T) {
 		{"--robot-insights"},
 		{"--robot-priority"},
 		{"--robot-recipes"},
+		{"--robot-docs", "commands"},
+		{"--robot-next"},
+		{"--robot-triage"},
+		{"--robot-label-health"},
+		{"--robot-label-flow"},
+		{"--robot-label-attention"},
+		{"--robot-capacity"},
 	} {
 		out := run(flag...)
 		if !json.Valid(out) {

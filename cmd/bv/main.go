@@ -609,6 +609,7 @@ func main() {
 		RobotSchemaFlag:  robotSchema,
 		RobotRecipesFlag: robotRecipes,
 		RobotMetricsFlag: robotMetrics,
+		RobotDocsFlag:    robotDocs,
 		VersionFlag:      versionFlag,
 		SchemaCommand:    schemaCommand,
 		RecipeLoader: func() *recipe.Loader {
@@ -644,6 +645,50 @@ func main() {
 		ForecastLabel:       forecastLabel,
 		ForecastSprint:      forecastSprint,
 		ForecastAgents:      forecastAgents,
+	})
+	phaseThreeRobotRegistry := newRobotRegistry()
+	registerPhaseThreeRobotHandlers(&phaseThreeRobotRegistry, phaseThreeRobotHandlerConfig{
+		RobotInsightsFlag:       robotInsights,
+		RobotTriageFlag:         robotTriage,
+		RobotTriageByTrackFlag:  robotTriageByTrack,
+		RobotTriageByLabelFlag:  robotTriageByLabel,
+		RobotNextFlag:           robotNext,
+		RobotHistoryFlag:        robotHistory,
+		BeadHistoryFlag:         beadHistory,
+		RobotExplainCorrFlag:    robotExplainCorrelation,
+		RobotConfirmCorrFlag:    robotConfirmCorrelation,
+		RobotRejectCorrFlag:     robotRejectCorrelation,
+		RobotCorrStatsFlag:      robotCorrelationStats,
+		CorrelationFeedbackBy:   correlationFeedbackBy,
+		CorrelationReason:       correlationFeedbackReason,
+		RobotLabelHealthFlag:    robotLabelHealth,
+		RobotLabelFlowFlag:      robotLabelFlow,
+		RobotLabelAttentionFlag: robotLabelAttention,
+		RobotOrphansFlag:        robotOrphans,
+		OrphansMinScore:         orphansMinScore,
+		RobotFileBeadsFlag:      robotFileBeads,
+		FileBeadsLimit:          fileBeadsLimit,
+		RobotImpactFlag:         robotImpact,
+		RobotFileRelationsFlag:  robotFileRelations,
+		RobotRelatedFlag:        robotRelatedWork,
+		RobotBlockerChainFlag:   robotBlockerChain,
+		RobotImpactNetworkFlag:  robotImpactNetwork,
+		RobotCausalityFlag:      robotCausality,
+		RobotSprintShowFlag:     robotSprintShow,
+		RobotCapacityFlag:       robotCapacity,
+		ForceFullAnalysis:       forceFullAnalysis,
+		HistoryLimit:            historyLimit,
+		HistorySince:            historySince,
+		MinConfidence:           minConfidence,
+		AttentionLimit:          attentionLimit,
+		RelationsThreshold:      relationsThreshold,
+		RelationsLimit:          relationsLimit,
+		RelatedMinRelevance:     relatedMinRelevance,
+		RelatedMaxResults:       relatedMaxResults,
+		RelatedIncludeClosed:    relatedIncludeClosed,
+		NetworkDepth:            networkDepth,
+		CapacityAgents:          capacityAgents,
+		CapacityLabel:           capacityLabel,
 	})
 	rootCmd := newRootCommand(func() error {
 		modifierRules := []modifierFlagRule{
@@ -1267,18 +1312,7 @@ func main() {
 		dispatchRobotFlagOrExit(&phaseOneRobotRegistry, "robot-schema", robotDispatchContext)
 
 		// Machine-readable robot docs (bd-2v50)
-		if *robotDocs != "" {
-			docs := generateRobotDocs(*robotDocs)
-			encoder := newRobotEncoder(os.Stdout)
-			if err := encoder.Encode(docs); err != nil {
-				fmt.Fprintf(os.Stderr, "Error encoding robot-docs: %v\n", err)
-				os.Exit(1)
-			}
-			if _, hasErr := docs["error"]; hasErr {
-				os.Exit(2) // Invalid arguments per documented exit codes
-			}
-			os.Exit(0)
-		}
+		dispatchRobotFlagOrExit(&phaseOneRobotRegistry, "robot-docs", robotDispatchContext)
 
 		// Get project directory for baseline operations (moved up to allow info check without loading issues)
 		projectDir, err := os.Getwd()
@@ -1956,6 +1990,10 @@ func main() {
 			os.Exit(0)
 		}
 
+		dispatchRobotFlagOrExit(&phaseThreeRobotRegistry, "robot-label-health", robotDispatchContext)
+		dispatchRobotFlagOrExit(&phaseThreeRobotRegistry, "robot-label-flow", robotDispatchContext)
+		dispatchRobotFlagOrExit(&phaseThreeRobotRegistry, "robot-label-attention", robotDispatchContext)
+
 		// Handle --robot-label-health
 		if *robotLabelHealth {
 			cfg := analysis.DefaultLabelHealthConfig()
@@ -2372,6 +2410,8 @@ func main() {
 			os.Exit(result.ExitCode())
 		}
 
+		dispatchRobotFlagOrExit(&phaseThreeRobotRegistry, "robot-insights", robotDispatchContext)
+
 		if *robotInsights {
 			analyzer := analysis.NewAnalyzer(issues)
 			if *forceFullAnalysis {
@@ -2544,6 +2584,11 @@ func main() {
 
 		dispatchRobotFlagOrExit(&phaseTwoRobotRegistry, "robot-plan", robotDispatchContext)
 		dispatchRobotFlagOrExit(&phaseTwoRobotRegistry, "robot-priority", robotDispatchContext)
+
+		dispatchRobotFlagOrExit(&phaseThreeRobotRegistry, "robot-next", robotDispatchContext)
+		dispatchRobotFlagOrExit(&phaseThreeRobotRegistry, "robot-triage", robotDispatchContext)
+		dispatchRobotFlagOrExit(&phaseThreeRobotRegistry, "robot-triage-by-track", robotDispatchContext)
+		dispatchRobotFlagOrExit(&phaseThreeRobotRegistry, "robot-triage-by-label", robotDispatchContext)
 
 		if *robotTriage || *robotNext || *robotTriageByTrack || *robotTriageByLabel {
 			// Attempt to load history for staleness analysis
@@ -2900,6 +2945,9 @@ func main() {
 			os.Exit(0)
 		}
 
+		dispatchRobotFlagOrExit(&phaseThreeRobotRegistry, "robot-history", robotDispatchContext)
+		dispatchRobotFlagOrExit(&phaseThreeRobotRegistry, "bead-history", robotDispatchContext)
+
 		// Handle --robot-history flag
 		if *robotHistory || *beadHistory != "" {
 			cwd, err := os.Getwd()
@@ -2992,6 +3040,11 @@ func main() {
 			}
 			os.Exit(0)
 		}
+
+		dispatchRobotFlagOrExit(&phaseThreeRobotRegistry, "robot-correlation-stats", robotDispatchContext)
+		dispatchRobotFlagOrExit(&phaseThreeRobotRegistry, "robot-explain-correlation", robotDispatchContext)
+		dispatchRobotFlagOrExit(&phaseThreeRobotRegistry, "robot-confirm-correlation", robotDispatchContext)
+		dispatchRobotFlagOrExit(&phaseThreeRobotRegistry, "robot-reject-correlation", robotDispatchContext)
 
 		// Handle correlation audit commands (bv-e1u6)
 		if *robotExplainCorrelation != "" || *robotConfirmCorrelation != "" || *robotRejectCorrelation != "" || *robotCorrelationStats {
@@ -3242,6 +3295,8 @@ func main() {
 			}
 		}
 
+		dispatchRobotFlagOrExit(&phaseThreeRobotRegistry, "robot-orphans", robotDispatchContext)
+
 		// Handle --robot-orphans flag (bv-jdop)
 		if *robotOrphans {
 			cwd, err := os.Getwd()
@@ -3339,6 +3394,8 @@ func main() {
 			}
 			os.Exit(0)
 		}
+
+		dispatchRobotFlagOrExit(&phaseThreeRobotRegistry, "robot-file-beads", robotDispatchContext)
 
 		// Handle --robot-file-beads and --robot-file-hotspots flags (bv-hmib)
 		if *robotFileBeads != "" || *fileHotspots {
@@ -3443,6 +3500,8 @@ func main() {
 			os.Exit(0)
 		}
 
+		dispatchRobotFlagOrExit(&phaseThreeRobotRegistry, "robot-impact", robotDispatchContext)
+
 		// Handle --robot-impact flag (bv-19pq)
 		if *robotImpact != "" {
 			cwd, err := os.Getwd()
@@ -3521,6 +3580,8 @@ func main() {
 			os.Exit(0)
 		}
 
+		dispatchRobotFlagOrExit(&phaseThreeRobotRegistry, "robot-file-relations", robotDispatchContext)
+
 		// Handle --robot-file-relations flag (bv-7a2f)
 		if *robotFileRelations != "" {
 			cwd, err := os.Getwd()
@@ -3595,6 +3656,8 @@ func main() {
 			}
 			os.Exit(0)
 		}
+
+		dispatchRobotFlagOrExit(&phaseThreeRobotRegistry, "robot-related", robotDispatchContext)
 
 		// Handle --robot-related flag (bv-jtdl)
 		if *robotRelatedWork != "" {
@@ -3693,6 +3756,8 @@ func main() {
 			os.Exit(0)
 		}
 
+		dispatchRobotFlagOrExit(&phaseThreeRobotRegistry, "robot-blocker-chain", robotDispatchContext)
+
 		// Handle --robot-blocker-chain flag (bv-nlo0)
 		if *robotBlockerChain != "" {
 			cwd, err := os.Getwd()
@@ -3735,6 +3800,8 @@ func main() {
 			}
 			os.Exit(0)
 		}
+
+		dispatchRobotFlagOrExit(&phaseThreeRobotRegistry, "robot-impact-network", robotDispatchContext)
 
 		// Handle --robot-impact-network flag (bv-48kr)
 		// Use "all" for full network or a bead ID for subnetwork
@@ -3830,6 +3897,8 @@ func main() {
 			os.Exit(0)
 		}
 
+		dispatchRobotFlagOrExit(&phaseThreeRobotRegistry, "robot-causality", robotDispatchContext)
+
 		// Handle --robot-causality flag (bv-j74w)
 		if *robotCausality != "" {
 			cwd, err := os.Getwd()
@@ -3915,6 +3984,9 @@ func main() {
 			os.Exit(0)
 		}
 
+		dispatchRobotFlagOrExit(&phaseTwoRobotRegistry, "robot-sprint-list", robotDispatchContext)
+		dispatchRobotFlagOrExit(&phaseThreeRobotRegistry, "robot-sprint-show", robotDispatchContext)
+
 		// Handle --robot-sprint-list and --robot-sprint-show flags (bv-156)
 		if *robotSprintList || *robotSprintShow != "" {
 			if *robotSprintShow == "" {
@@ -3987,6 +4059,8 @@ func main() {
 
 		// Handle --robot-forecast flag (bv-158)
 		dispatchRobotFlagOrExit(&phaseTwoRobotRegistry, "robot-forecast", robotDispatchContext)
+
+		dispatchRobotFlagOrExit(&phaseThreeRobotRegistry, "robot-capacity", robotDispatchContext)
 
 		// Handle --robot-capacity flag (bv-160)
 		if *robotCapacity {

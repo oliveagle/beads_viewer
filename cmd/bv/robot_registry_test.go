@@ -187,6 +187,99 @@ func TestRobotRegistryDispatchFlag_RunsActiveHandler(t *testing.T) {
 	}
 }
 
+func TestDispatchRobotFlagResult_ReturnsComposableOutcome(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		var robotHelp bool
+
+		registry := newRobotRegistry()
+		registry.Register(RobotCommand{
+			Name:     "robot-help",
+			FlagName: "robot-help",
+			FlagPtr:  &robotHelp,
+			Handler: func(RobotContext) error {
+				return nil
+			},
+		})
+
+		result := dispatchRobotFlagResult(&registry, "robot-help", RobotContext{})
+		if result.Handled {
+			t.Fatal("inactive flag should not dispatch")
+		}
+		if result.ExitCode != 0 {
+			t.Fatalf("inactive flag exit code = %d, want 0", result.ExitCode)
+		}
+
+		robotHelp = true
+		result = dispatchRobotFlagResult(&registry, "robot-help", RobotContext{})
+		if !result.Handled {
+			t.Fatal("active flag should dispatch")
+		}
+		if result.ExitCode != 0 {
+			t.Fatalf("successful dispatch exit code = %d, want 0", result.ExitCode)
+		}
+		if result.Err != nil {
+			t.Fatalf("successful dispatch should not return error: %v", result.Err)
+		}
+		if result.AlreadyReported {
+			t.Fatal("successful dispatch should not be marked reported")
+		}
+	})
+
+	t.Run("handler error", func(t *testing.T) {
+		var robotHelp = true
+		registry := newRobotRegistry()
+		registry.Register(RobotCommand{
+			Name:     "robot-help",
+			FlagName: "robot-help",
+			FlagPtr:  &robotHelp,
+			Handler: func(RobotContext) error {
+				return errors.New("boom")
+			},
+		})
+
+		result := dispatchRobotFlagResult(&registry, "robot-help", RobotContext{})
+		if !result.Handled {
+			t.Fatal("active flag should dispatch")
+		}
+		if result.ExitCode != 1 {
+			t.Fatalf("error dispatch exit code = %d, want 1", result.ExitCode)
+		}
+		if result.Err == nil || !strings.Contains(result.Err.Error(), "boom") {
+			t.Fatalf("error dispatch returned err = %v, want boom", result.Err)
+		}
+		if result.AlreadyReported {
+			t.Fatal("plain handler errors should not be marked reported")
+		}
+	})
+
+	t.Run("reported exit", func(t *testing.T) {
+		var robotHelp = true
+		registry := newRobotRegistry()
+		registry.Register(RobotCommand{
+			Name:     "robot-help",
+			FlagName: "robot-help",
+			FlagPtr:  &robotHelp,
+			Handler: func(RobotContext) error {
+				return newReportedRobotHandlerExit(2)
+			},
+		})
+
+		result := dispatchRobotFlagResult(&registry, "robot-help", RobotContext{})
+		if !result.Handled {
+			t.Fatal("active flag should dispatch")
+		}
+		if result.ExitCode != 2 {
+			t.Fatalf("reported dispatch exit code = %d, want 2", result.ExitCode)
+		}
+		if result.Err != nil {
+			t.Fatalf("reported exit should not retain wrapped error: %v", result.Err)
+		}
+		if !result.AlreadyReported {
+			t.Fatal("reported exit should preserve AlreadyReported")
+		}
+	})
+}
+
 func TestWriteRobotHelp_ReturnsWriterError(t *testing.T) {
 	err := writeRobotHelp(failingWriter{err: errors.New("write failed")})
 	if err == nil {
@@ -194,6 +287,24 @@ func TestWriteRobotHelp_ReturnsWriterError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "write failed") {
 		t.Fatalf("expected wrapped writer error, got %v", err)
+	}
+}
+
+func TestWriteRobotHelp_ReturnsWriterErrorAfterIntro(t *testing.T) {
+	writer := &failAfterNWritesWriter{
+		failAfter: 1,
+		err:       errors.New("write failed after intro"),
+	}
+
+	err := writeRobotHelp(writer)
+	if err == nil {
+		t.Fatal("expected writer error after intro")
+	}
+	if !strings.Contains(err.Error(), "key bindings") {
+		t.Fatalf("expected contextual error for later write, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "write failed after intro") {
+		t.Fatalf("expected underlying writer error, got %v", err)
 	}
 }
 
@@ -207,4 +318,18 @@ type failingWriter struct {
 
 func (w failingWriter) Write([]byte) (int, error) {
 	return 0, w.err
+}
+
+type failAfterNWritesWriter struct {
+	failAfter int
+	writes    int
+	err       error
+}
+
+func (w *failAfterNWritesWriter) Write(p []byte) (int, error) {
+	if w.writes >= w.failAfter {
+		return 0, w.err
+	}
+	w.writes++
+	return len(p), nil
 }

@@ -428,6 +428,29 @@ func (d *driftingHashAtomicLoader) LoadMetricsWithHash() (map[string]IssueMetric
 	return d.metrics, d.finalHash, nil
 }
 
+type hashOnceAtomicLoader struct {
+	hash      string
+	hashCalls atomic.Int32
+	loadCalls atomic.Int32
+	metrics   map[string]IssueMetrics
+}
+
+func (h *hashOnceAtomicLoader) LoadMetrics() (map[string]IssueMetrics, error) {
+	return nil, errors.New("unexpected non-atomic load")
+}
+
+func (h *hashOnceAtomicLoader) ComputeDataHash() (string, error) {
+	if h.hashCalls.Add(1) > 1 {
+		return "", errors.New("ComputeDataHash called more than once")
+	}
+	return h.hash, nil
+}
+
+func (h *hashOnceAtomicLoader) LoadMetricsWithHash() (map[string]IssueMetrics, string, error) {
+	h.loadCalls.Add(1)
+	return h.metrics, h.hash, nil
+}
+
 func TestMetricsCacheEnsureFresh_Singleflight(t *testing.T) {
 	loader := &singleflightMetricsLoader{
 		metrics: map[string]IssueMetrics{
@@ -535,6 +558,34 @@ func TestMetricsCacheEnsureFresh_SingleflightAcrossHashDrift(t *testing.T) {
 	}
 	if got := cache.DataHash(); got != loader.finalHash {
 		t.Fatalf("expected final cache hash %q, got %q", loader.finalHash, got)
+	}
+}
+
+func TestMetricsCacheEnsureFresh_UsesSingleObservedHash(t *testing.T) {
+	loader := &hashOnceAtomicLoader{
+		hash: "hash-once",
+		metrics: map[string]IssueMetrics{
+			"A": {IssueID: "A", PageRank: 0.6, BlockerCount: 3},
+		},
+	}
+
+	cache := NewMetricsCache(loader)
+
+	metric, ok := cache.Get("A")
+	if !ok {
+		t.Fatal("expected metric to be found")
+	}
+	if metric.PageRank != 0.6 {
+		t.Fatalf("expected PageRank 0.6, got %f", metric.PageRank)
+	}
+	if got := loader.hashCalls.Load(); got != 1 {
+		t.Fatalf("expected ComputeDataHash to be called exactly once, got %d", got)
+	}
+	if got := loader.loadCalls.Load(); got != 1 {
+		t.Fatalf("expected a single refresh load, got %d", got)
+	}
+	if got := cache.DataHash(); got != loader.hash {
+		t.Fatalf("expected cache hash %q, got %q", loader.hash, got)
 	}
 }
 

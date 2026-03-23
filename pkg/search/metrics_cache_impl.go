@@ -265,28 +265,14 @@ func (c *metricsCache) ensureFresh() error {
 		return err
 	}
 
-	c.mu.RLock()
-	isFresh := c.metrics != nil && c.dataHash != "" && c.dataHash == hash
-	c.mu.RUnlock()
-
-	if isFresh {
+	if c.isFreshForHash(hash) {
 		return nil
 	}
 
-	// Use singleflight to prevent cache stampede: all goroutines detecting
-	// the same staleness (same hash) will coalesce into a single Refresh call.
-	// The "winning" goroutine runs Refresh; others block and receive the same result.
-	_, err, _ = c.sf.Do(metricsCacheRefreshFlightKey, func() (interface{}, error) {
-		// Double-check freshness: another goroutine may have just refreshed
-		latestHash, err := c.loader.ComputeDataHash()
-		if err != nil {
-			return nil, err
-		}
-
-		c.mu.RLock()
-		stillStale := c.metrics == nil || c.dataHash == "" || c.dataHash != latestHash
-		c.mu.RUnlock()
-		if !stillStale {
+	// Use singleflight to prevent cache stampede: callers that observe the same
+	// source hash coalesce into a single refresh attempt for that snapshot.
+	_, err, _ = c.sf.Do(metricsCacheRefreshFlightKey+":"+hash, func() (interface{}, error) {
+		if c.isFreshForHash(hash) {
 			return nil, nil
 		}
 		return nil, c.Refresh()
@@ -313,4 +299,10 @@ func cloneMetricsLoaderIssues(issues []model.Issue) []model.Issue {
 		clones[i] = issues[i].Clone()
 	}
 	return clones
+}
+
+func (c *metricsCache) isFreshForHash(hash string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.metrics != nil && c.dataHash != "" && c.dataHash == hash
 }

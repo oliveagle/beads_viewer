@@ -600,7 +600,7 @@ func TestView_LoadingScreen_TransitionsOnFirstSnapshotOrError(t *testing.T) {
 func TestRenderFooter_ShowsPhase2ProgressBadge(t *testing.T) {
 	m := NewModel(nil, nil, "")
 	m.width = 80
-	m.snapshot = &DataSnapshot{Phase2Ready: false}
+	m.snapshot = &DataSnapshot{phase2Ready: false}
 
 	out := m.renderFooter()
 	if !strings.Contains(out, "metrics") {
@@ -797,7 +797,7 @@ func TestRenderFooter_CombinedIndicators(t *testing.T) {
 	m.countOpen, m.countReady, m.countBlocked, m.countClosed = 1, 2, 3, 4
 	m.updateAvailable = true
 	m.updateTag = "v9.9.9"
-	m.snapshot = &DataSnapshot{CreatedAt: time.Now(), Phase2Ready: false}
+	m.snapshot = &DataSnapshot{CreatedAt: time.Now(), phase2Ready: false}
 	m.backgroundWorker = &BackgroundWorker{
 		started:          true,
 		state:            WorkerIdle,

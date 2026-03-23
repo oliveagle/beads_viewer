@@ -1,9 +1,12 @@
 package correlation
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -699,6 +702,191 @@ func TestCachedCorrelator_XFetchUsesClonedInputs(t *testing.T) {
 	got, _ := refreshStatus.Load().(string)
 	if got != "open" {
 		t.Fatalf("expected background refresh to observe cloned bead status %q, got %q", "open", got)
+	}
+}
+
+func TestCachedCorrelator_SingleflightLogsSharedErrors(t *testing.T) {
+	repoPath := initTempGitRepo(t)
+	correlator := NewCachedCorrelator(repoPath)
+	beads := []BeadInfo{{ID: "test-1", Status: "open"}}
+	opts := CorrelatorOptions{Limit: 10}
+
+	wantErr := errors.New("shared singleflight failure")
+	var calls atomic.Int32
+	var started atomic.Int32
+	generateStarted := make(chan struct{})
+	releaseGenerate := make(chan struct{})
+
+	correlator.generateReportFn = func([]BeadInfo, CorrelatorOptions) (*HistoryReport, error) {
+		calls.Add(1)
+		select {
+		case <-generateStarted:
+		default:
+			close(generateStarted)
+		}
+		<-releaseGenerate
+		return nil, wantErr
+	}
+
+	var logMu sync.Mutex
+	logs := make([]string, 0, 2)
+	originalLogf := correlationCacheLogf
+	correlationCacheLogf = func(format string, args ...any) {
+		logMu.Lock()
+		logs = append(logs, fmt.Sprintf(format, args...))
+		logMu.Unlock()
+	}
+	defer func() {
+		correlationCacheLogf = originalLogf
+	}()
+
+	const workers = 2
+	start := make(chan struct{})
+	var ready sync.WaitGroup
+	ready.Add(workers)
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	errCh := make(chan error, workers)
+
+	for i := 0; i < workers; i++ {
+		go func() {
+			defer wg.Done()
+			ready.Done()
+			<-start
+			started.Add(1)
+			_, err := correlator.GenerateReport(beads, opts)
+			errCh <- err
+		}()
+	}
+
+	ready.Wait()
+	close(start)
+
+	select {
+	case <-generateStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for report generation to start")
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for started.Load() != workers {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for workers to start, got %d of %d", started.Load(), workers)
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	close(releaseGenerate)
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		if !errors.Is(err, wantErr) {
+			t.Fatalf("GenerateReport error = %v, want %v", err, wantErr)
+		}
+	}
+
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("underlying GenerateReport calls = %d, want 1", got)
+	}
+
+	logMu.Lock()
+	joinedLogs := strings.Join(logs, "\n")
+	logCount := len(logs)
+	logMu.Unlock()
+	if logCount == 0 {
+		t.Fatal("expected singleflight error to be logged")
+	}
+	if !strings.Contains(joinedLogs, "shared=true") {
+		t.Fatalf("expected shared singleflight error log, got %q", joinedLogs)
+	}
+	if !strings.Contains(joinedLogs, wantErr.Error()) {
+		t.Fatalf("expected logged error %q, got %q", wantErr, joinedLogs)
+	}
+}
+
+func TestCachedCorrelator_XFetchRefreshLogsErrors(t *testing.T) {
+	repoPath := initTempGitRepo(t)
+	correlator := NewCachedCorrelator(repoPath)
+	correlator.shouldRefreshFn = func(time.Time, time.Duration, float64, time.Time) bool { return true }
+
+	beads := []BeadInfo{{ID: "test-1", Status: "open"}}
+	opts := CorrelatorOptions{Limit: 10}
+	wantErr := errors.New("xfetch refresh failed")
+
+	refreshAttempted := make(chan struct{})
+	refreshDone := make(chan struct{})
+	var callCount atomic.Int32
+	correlator.generateReportFn = func([]BeadInfo, CorrelatorOptions) (*HistoryReport, error) {
+		call := callCount.Add(1)
+		if call == 2 {
+			close(refreshAttempted)
+			defer close(refreshDone)
+			return nil, wantErr
+		}
+		return &HistoryReport{
+			GeneratedAt: time.Now().UTC(),
+			Histories:   map[string]BeadHistory{"test-1": {BeadID: "test-1"}},
+		}, nil
+	}
+
+	var logMu sync.Mutex
+	logs := make([]string, 0, 1)
+	originalLogf := correlationCacheLogf
+	correlationCacheLogf = func(format string, args ...any) {
+		logMu.Lock()
+		logs = append(logs, fmt.Sprintf(format, args...))
+		logMu.Unlock()
+	}
+	defer func() {
+		correlationCacheLogf = originalLogf
+	}()
+
+	if _, err := correlator.GenerateReport(beads, opts); err != nil {
+		t.Fatalf("initial GenerateReport failed: %v", err)
+	}
+	key, err := BuildCacheKey(repoPath, beads, opts)
+	if err != nil {
+		t.Fatalf("BuildCacheKey failed: %v", err)
+	}
+	report, ok := correlator.cache.Get(key)
+	if !ok {
+		t.Fatal("expected primed cache entry")
+	}
+	correlator.cache.PutWithDuration(key, report, time.Second)
+
+	if _, err := correlator.GenerateReport(beads, opts); err != nil {
+		t.Fatalf("cached GenerateReport failed: %v", err)
+	}
+
+	select {
+	case <-refreshAttempted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for background refresh to start")
+	}
+
+	select {
+	case <-refreshDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for background refresh to finish")
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		logMu.Lock()
+		joinedLogs := strings.Join(logs, "\n")
+		logMu.Unlock()
+		if strings.Contains(joinedLogs, wantErr.Error()) {
+			if !strings.Contains(joinedLogs, "background refresh") {
+				t.Fatalf("expected background refresh log context, got %q", joinedLogs)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected background refresh error log containing %q, got %q", wantErr, joinedLogs)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 

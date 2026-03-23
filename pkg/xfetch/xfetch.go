@@ -42,7 +42,12 @@ func ShouldRefresh(lastCompute time.Time, computeDuration time.Duration, beta fl
 		r = 1e-10 // Avoid log(0)
 	}
 
-	threshold := lastCompute.Add(time.Duration(float64(computeDuration) * beta * -math.Log(r)))
+	product := float64(computeDuration) * beta * -math.Log(r)
+	if product > float64(math.MaxInt64) || math.IsInf(product, 0) || math.IsNaN(product) {
+		// Duration would overflow int64 — definitely should refresh
+		return true
+	}
+	threshold := lastCompute.Add(time.Duration(product))
 	return now.After(threshold)
 }
 

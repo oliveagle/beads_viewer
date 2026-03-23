@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os/exec"
 	"sort"
 	"strings"
@@ -52,6 +53,8 @@ const DefaultCacheMaxAge = 5 * time.Minute
 
 // DefaultCacheMaxSize is the default maximum number of cache entries
 const DefaultCacheMaxSize = 10
+
+var correlationCacheLogf = log.Printf
 
 // NewHistoryCache creates a new cache with default settings
 func NewHistoryCache(repoPath string) *HistoryCache {
@@ -405,7 +408,7 @@ func (c *CachedCorrelator) GenerateReport(beads []BeadInfo, opts CorrelatorOptio
 			refreshBeads, refreshOpts := cloneCorrelatorInputs(beads, opts)
 			// Trigger background refresh (non-blocking)
 			go func() {
-				_, _, _ = c.sf.Do(key.String(), func() (interface{}, error) {
+				_, err, shared := c.sf.Do(key.String(), func() (interface{}, error) {
 					if existing, existingCreatedAt, _, ok := c.cache.GetWithMeta(key); ok && existingCreatedAt.After(createdAt) {
 						return existing, nil
 					}
@@ -418,13 +421,16 @@ func (c *CachedCorrelator) GenerateReport(beads []BeadInfo, opts CorrelatorOptio
 					c.cacheReportIfCurrent(key, refreshBeads, refreshOpts, freshReport, time.Since(start))
 					return freshReport, nil
 				})
+				if err != nil {
+					logCorrelationCacheSingleflightError("background refresh", key, shared, err)
+				}
 			}()
 		}
 
 		return report, nil
 	}
 
-	result, err, _ := c.sf.Do(key.String(), func() (interface{}, error) {
+	result, err, shared := c.sf.Do(key.String(), func() (interface{}, error) {
 		// Another caller may have filled the cache while we waited to enter the flight.
 		if report, _, _, ok := c.cache.GetWithMeta(key); ok {
 			c.recordHit()
@@ -443,6 +449,7 @@ func (c *CachedCorrelator) GenerateReport(beads []BeadInfo, opts CorrelatorOptio
 		return report, nil
 	})
 	if err != nil {
+		logCorrelationCacheSingleflightError("report generation", key, shared, err)
 		return nil, err
 	}
 
@@ -452,6 +459,19 @@ func (c *CachedCorrelator) GenerateReport(beads []BeadInfo, opts CorrelatorOptio
 	}
 
 	return report, nil
+}
+
+func logCorrelationCacheSingleflightError(operation string, key CacheKey, shared bool, err error) {
+	if err == nil {
+		return
+	}
+	correlationCacheLogf(
+		"correlation cache singleflight %s failed for key %s (shared=%t): %v",
+		operation,
+		key.String(),
+		shared,
+		err,
+	)
 }
 
 // InvalidateCache clears all cached entries

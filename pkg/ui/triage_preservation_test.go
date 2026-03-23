@@ -119,7 +119,7 @@ func TestDataSnapshotPreservesTriageWhenPhase1(t *testing.T) {
 		IssueMap:     m.issueMap,
 		Analyzer:     m.analyzer,
 		Analysis:     m.analysis,
-		Insights:     m.analysis.GenerateInsights(len(m.issues)),
+		insights:     m.analysis.GenerateInsights(len(m.issues)),
 		CountOpen:    m.countOpen,
 		CountReady:   m.countReady,
 		CountBlocked: m.countBlocked,
@@ -131,7 +131,7 @@ func TestDataSnapshotPreservesTriageWhenPhase1(t *testing.T) {
 		QuickWinSet:   map[string]bool{},
 		BlockerSet:    map[string]bool{},
 		UnblocksMap:   map[string][]string{},
-		Phase2Ready:   false,
+		phase2Ready:   false,
 	}
 
 	nextModel, _ := m.Update(SnapshotReadyMsg{Snapshot: snapshot})

@@ -481,8 +481,9 @@ func (b *BoardModel) SetSnapshot(s *DataSnapshot) {
 	}
 
 	// Prefer snapshot-precomputed reverse-dependency index when available.
-	if s.GraphLayout != nil && s.GraphLayout.Dependents != nil {
-		b.blocksIndex = s.GraphLayout.Dependents
+	graphLayout := s.GetGraphLayout()
+	if graphLayout != nil && graphLayout.Dependents != nil {
+		b.blocksIndex = graphLayout.Dependents
 	} else {
 		b.blocksIndex = buildBlocksIndex(s.Issues)
 	}

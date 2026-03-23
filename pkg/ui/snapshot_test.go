@@ -137,7 +137,7 @@ func TestSnapshotBuilder_Simple(t *testing.T) {
 	if snapshot.Analysis == nil {
 		t.Error("Analysis should not be nil")
 	}
-	if snapshot.Insights.Stats != snapshot.Analysis {
+	if snapshot.GetInsights().Stats != snapshot.Analysis {
 		t.Error("Insights.Stats should reference Analysis")
 	}
 
@@ -271,10 +271,10 @@ func TestSnapshotBuilder_WithBuildConfig_SkipsPrecomputesForLargeTier(t *testing
 	if snapshot.BoardState != nil {
 		t.Fatalf("expected board precompute to be skipped")
 	}
-	if snapshot.GraphLayout != nil {
+	if snapshot.GetGraphLayout() != nil {
 		t.Fatalf("expected graph layout precompute to be skipped")
 	}
-	if snapshot.Insights.Stats != snapshot.Analysis {
+	if snapshot.GetInsights().Stats != snapshot.Analysis {
 		t.Fatalf("expected Insights.Stats to reference Analysis")
 	}
 }
@@ -355,19 +355,20 @@ func TestSnapshotBuilder_GraphLayout(t *testing.T) {
 	}
 
 	snapshot := NewSnapshotBuilder(issues).Build()
-	if snapshot.GraphLayout == nil {
+	layout := snapshot.GetGraphLayout()
+	if layout == nil {
 		t.Fatal("expected GraphLayout to be computed")
 	}
 
-	if got := snapshot.GraphLayout.Blockers["A"]; len(got) != 1 || got[0] != "B" {
+	if got := layout.Blockers["A"]; len(got) != 1 || got[0] != "B" {
 		t.Fatalf("unexpected blockers for A: %#v", got)
 	}
-	if got := snapshot.GraphLayout.Dependents["B"]; len(got) != 1 || got[0] != "A" {
+	if got := layout.Dependents["B"]; len(got) != 1 || got[0] != "A" {
 		t.Fatalf("unexpected dependents for B: %#v", got)
 	}
 
-	if len(snapshot.GraphLayout.SortedIDs) != len(issues) {
-		t.Fatalf("expected %d sorted IDs, got %d", len(issues), len(snapshot.GraphLayout.SortedIDs))
+	if len(layout.SortedIDs) != len(issues) {
+		t.Fatalf("expected %d sorted IDs, got %d", len(issues), len(layout.SortedIDs))
 	}
 }
 
@@ -687,7 +688,7 @@ func TestSnapshotSwap_UsesSnapshotInsights(t *testing.T) {
 	m := NewModel(issues, nil, "")
 
 	snapshot := NewSnapshotBuilder(issues).Build()
-	snapshot.Insights.Bottlenecks = []analysis.InsightItem{{ID: "sentinel", Value: 1}}
+	snapshot.insights.Bottlenecks = []analysis.InsightItem{{ID: "sentinel", Value: 1}}
 
 	newM, _ := m.Update(SnapshotReadyMsg{Snapshot: snapshot})
 	m = newM.(Model)
@@ -714,14 +715,14 @@ func TestSnapshotSwap_UsesSnapshotGraphLayoutWhenUnfiltered(t *testing.T) {
 	m.currentFilter = "all"
 
 	snapshot := NewSnapshotBuilder(issues).Build()
-	if snapshot.GraphLayout == nil {
+	if snapshot.GetGraphLayout() == nil {
 		t.Fatal("expected snapshot GraphLayout")
 	}
 
 	// Sentinel tweak: if the UI rebuilds graph relationships from issues (SetIssues),
 	// blockers["A"] will be ["B"]. If it uses the snapshot layout (SetSnapshot),
 	// it will preserve this sentinel.
-	snapshot.GraphLayout.Blockers["A"] = []string{"SENTINEL"}
+	snapshot.graphLayout.Blockers["A"] = []string{"SENTINEL"}
 
 	newM, _ := m.Update(SnapshotReadyMsg{Snapshot: snapshot})
 	m = newM.(Model)
@@ -751,7 +752,7 @@ func TestPhase2ReadyMsg_DoesNotRebuildGraphViewWhenSnapshotHasLayout(t *testing.
 	m.currentFilter = "all"
 
 	snapshot := NewSnapshotBuilder(issues).Build()
-	snapshot.GraphLayout.Blockers["A"] = []string{"SENTINEL"}
+	snapshot.graphLayout.Blockers["A"] = []string{"SENTINEL"}
 
 	newM, _ := m.Update(SnapshotReadyMsg{Snapshot: snapshot})
 	m = newM.(Model)
@@ -884,7 +885,7 @@ func TestWithPhase2_ReturnsNewPointer(t *testing.T) {
 	cfg.SkipPhase2 = true // Ensure Phase2Ready starts as false
 	original := NewSnapshotBuilder(issues).WithBuildConfig(cfg).Build()
 
-	if original.Phase2Ready {
+	if original.IsPhase2Ready() {
 		t.Skip("Phase2 completed before Build() returned; cannot test Phase2Ready transition")
 	}
 
@@ -899,7 +900,7 @@ func TestWithPhase2_ReturnsNewPointer(t *testing.T) {
 	if newSnapshot == original {
 		t.Error("WithPhase2 should return a new snapshot pointer")
 	}
-	if !newSnapshot.Phase2Ready {
+	if !newSnapshot.IsPhase2Ready() {
 		t.Error("new snapshot should have Phase2Ready=true")
 	}
 }
@@ -972,7 +973,7 @@ func TestWithPhase2_ConcurrentReadSafe(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 100; i++ {
-			_ = original.Phase2Ready
+			_ = original.IsPhase2Ready()
 			_ = len(original.Issues)
 			if original.IssueMap != nil {
 				_ = len(original.IssueMap)

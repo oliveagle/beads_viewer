@@ -1551,7 +1551,7 @@ func (w *BackgroundWorker) buildSnapshot() *DataSnapshot {
 	}
 
 	// Spawn Phase 2 completion watcher if Phase 2 isn't ready yet
-	if snapshot != nil && !snapshot.Phase2Ready {
+	if snapshot != nil && !snapshot.IsPhase2Ready() {
 		go w.runPhase2Analysis(snapshot.Analysis, hash)
 	}
 

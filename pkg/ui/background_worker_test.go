@@ -155,7 +155,7 @@ func TestBackgroundWorker_StopReturnsSnapshotPooledIssues(t *testing.T) {
 		Issues:           []model.Issue{{ID: "test-1", Title: "Test", Status: model.StatusOpen}},
 		pooledIssues:     []*model.Issue{pooled},
 		CreatedAt:        time.Now(),
-		Phase2Ready:      true,
+		phase2Ready:      true,
 		LoadWarningCount: 0,
 	}
 

@@ -137,7 +137,7 @@ type DataSnapshot struct {
 	// Graph analysis
 	Analyzer *analysis.Analyzer
 	Analysis *analysis.GraphStats
-	Insights analysis.Insights
+	insights analysis.Insights // unexported for immutability; use GetInsights()
 
 	// Computed statistics
 	CountOpen    int
@@ -160,9 +160,10 @@ type DataSnapshot struct {
 	TreeNodeMap map[string]*IssueTreeNode
 	// BoardState contains pre-built Kanban board columns for each swimlane mode (bv-guxz).
 	BoardState *BoardState
-	// GraphLayout contains pre-built graph view data (blockers/dependents, sorted IDs, ranks)
+	// graphLayout contains pre-built graph view data (blockers/dependents, sorted IDs, ranks)
 	// to avoid rebuilding graph structures on the UI thread (bv-za8z).
-	GraphLayout *GraphLayout
+	// Unexported for immutability; use GetGraphLayout().
+	graphLayout *GraphLayout
 
 	// Metadata
 	CreatedAt  time.Time // When this snapshot was built
@@ -188,9 +189,10 @@ type DataSnapshot struct {
 	LoadWarningCount int
 
 	// Phase 2 analysis status
-	// Phase2Ready is true when expensive metrics (PageRank, Betweenness, etc.) are computed
-	// UI can render immediately with Phase 1 data, then refresh when Phase 2 completes
-	Phase2Ready bool
+	// phase2Ready is true when expensive metrics (PageRank, Betweenness, etc.) are computed.
+	// UI can render immediately with Phase 1 data, then refresh when Phase 2 completes.
+	// Unexported for immutability; use IsPhase2Ready().
+	phase2Ready bool
 
 	// Incremental update metadata (bv-5mzz).
 	IssueDiff      *analysis.IssueDiff
@@ -202,6 +204,30 @@ type DataSnapshot struct {
 	LoadError    error     // Non-nil if last load had recoverable errors
 	ErrorTime    time.Time // When error occurred
 	StaleWarning bool      // True if data is from previous successful load
+}
+
+// IsPhase2Ready returns whether expensive Phase 2 metrics are computed.
+func (s *DataSnapshot) IsPhase2Ready() bool {
+	if s == nil {
+		return false
+	}
+	return s.phase2Ready
+}
+
+// GetInsights returns the precomputed insights for this snapshot.
+func (s *DataSnapshot) GetInsights() analysis.Insights {
+	if s == nil {
+		return analysis.Insights{}
+	}
+	return s.insights
+}
+
+// GetGraphLayout returns the precomputed graph layout for this snapshot.
+func (s *DataSnapshot) GetGraphLayout() *GraphLayout {
+	if s == nil {
+		return nil
+	}
+	return s.graphLayout
 }
 
 // GraphLayout contains precomputed data used by the graph view.
@@ -493,7 +519,7 @@ func (b *SnapshotBuilder) Build() *DataSnapshot {
 		ViewIssues:    viewIssues,
 		Analyzer:      b.analyzer,
 		Analysis:      graphStats,
-		Insights:      insights,
+		insights:      insights,
 		CountOpen:     cOpen,
 		CountReady:    cReady,
 		CountBlocked:  cBlocked,
@@ -507,9 +533,9 @@ func (b *SnapshotBuilder) Build() *DataSnapshot {
 		TreeRoots:     treeRoots,
 		TreeNodeMap:   treeNodeMap,
 		BoardState:    boardState,
-		GraphLayout:   graphLayout,
+		graphLayout:   graphLayout,
 		CreatedAt:     time.Now(),
-		Phase2Ready:   graphStats.IsPhase2Ready(),
+		phase2Ready:   graphStats.IsPhase2Ready(),
 		IssueDiff:     b.diff,
 		IssueDiffStats: IssueDiffStats{
 			Changed: b.diffStats.Changed,
@@ -984,6 +1010,63 @@ func deepCopyTree(roots []*IssueTreeNode, nodeMap map[string]*IssueTreeNode, iss
 	return newRoots, newNodeMap
 }
 
+// deepCopyListItems creates a deep copy of a ListItems slice.
+// Each IssueItem contains mutable fields (SearchComponents map, TriageReasons slice)
+// that must be copied to prevent race conditions between snapshots.
+func deepCopyListItems(items []IssueItem) []IssueItem {
+	if len(items) == 0 {
+		return nil
+	}
+	cloned := make([]IssueItem, len(items))
+	for i := range items {
+		cloned[i] = items[i]
+		// Deep copy the mutable SearchComponents map
+		if len(items[i].SearchComponents) > 0 {
+			cloned[i].SearchComponents = make(map[string]float64, len(items[i].SearchComponents))
+			for k, v := range items[i].SearchComponents {
+				cloned[i].SearchComponents[k] = v
+			}
+		}
+		// Deep copy the mutable TriageReasons slice
+		if len(items[i].TriageReasons) > 0 {
+			cloned[i].TriageReasons = make([]string, len(items[i].TriageReasons))
+			copy(cloned[i].TriageReasons, items[i].TriageReasons)
+		}
+	}
+	return cloned
+}
+
+// deepCopyBoardState creates a deep copy of a BoardState.
+// BoardState contains [4][]model.Issue arrays which are mutable slices
+// that must be copied to prevent race conditions between snapshots.
+func deepCopyBoardState(bs *BoardState) *BoardState {
+	if bs == nil {
+		return nil
+	}
+	cloned := &BoardState{}
+	for i := 0; i < 4; i++ {
+		if len(bs.ByStatus[i]) > 0 {
+			cloned.ByStatus[i] = make([]model.Issue, len(bs.ByStatus[i]))
+			for j := range bs.ByStatus[i] {
+				cloned.ByStatus[i][j] = bs.ByStatus[i][j].Clone()
+			}
+		}
+		if len(bs.ByPriority[i]) > 0 {
+			cloned.ByPriority[i] = make([]model.Issue, len(bs.ByPriority[i]))
+			for j := range bs.ByPriority[i] {
+				cloned.ByPriority[i][j] = bs.ByPriority[i][j].Clone()
+			}
+		}
+		if len(bs.ByType[i]) > 0 {
+			cloned.ByType[i] = make([]model.Issue, len(bs.ByType[i]))
+			for j := range bs.ByType[i] {
+				cloned.ByType[i][j] = bs.ByType[i][j].Clone()
+			}
+		}
+	}
+	return cloned
+}
+
 // graphLayoutWithRanks returns a new GraphLayout with Phase 2 ranks populated from stats.
 // This is a pure function - it does not modify the input.
 func graphLayoutWithRanks(old *GraphLayout, stats *analysis.GraphStats) *GraphLayout {
@@ -1085,17 +1168,17 @@ func (s *DataSnapshot) WithPhase2(stats *analysis.GraphStats, insights analysis.
 		IssueMap:     clonedIssueMap,
 		pooledIssues: s.pooledIssues,
 		ViewIssues:   s.ViewIssues,
-		ListItems:    s.ListItems,
-		TreeRoots:    treeRoots,   // Deep copy - tree view mutates these
-		TreeNodeMap:  treeNodeMap, // Deep copy - tree view mutates these
-		BoardState:   s.BoardState,
+		ListItems:    deepCopyListItems(s.ListItems), // Deep copy - contains mutable SearchComponents/TriageReasons
+		TreeRoots:    treeRoots,                      // Deep copy - tree view mutates these
+		TreeNodeMap:  treeNodeMap,                    // Deep copy - tree view mutates these
+		BoardState:   deepCopyBoardState(s.BoardState), // Deep copy - contains mutable [4][]model.Issue arrays
 
 		// Updated with Phase 2 data
 		Analyzer:      analyzer,
 		Analysis:      stats,
-		Insights:      insights,
-		GraphLayout:   graphLayoutWithRanks(s.GraphLayout, stats),
-		Phase2Ready:   true,
+		insights:      insights,
+		graphLayout:   graphLayoutWithRanks(s.graphLayout, stats),
+		phase2Ready:   true,
 		TriageScores:  triageScores,
 		TriageReasons: triageReasons,
 		QuickWinSet:   quickWinSet,

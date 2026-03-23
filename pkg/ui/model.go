@@ -1169,7 +1169,7 @@ func (m *Model) rebuildInsightsPanel() {
 	var ins analysis.Insights
 	switch {
 	case m.snapshot != nil:
-		ins = m.snapshot.Insights
+		ins = m.snapshot.GetInsights()
 	case m.analysis != nil:
 		ins = m.analysis.GenerateInsights(len(m.issues))
 	}
@@ -1606,7 +1606,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Mark snapshot as Phase 2 ready
-		m.snapshot.Phase2Ready = true
+		m.snapshot.phase2Ready = true
 
 		// Note: Phase2ReadyMsg handler (via WaitForPhase2Cmd) already handles
 		// all the UI updates (insights, graph view, alerts, etc.). This message
@@ -1717,7 +1717,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Preserve existing triage data unless the snapshot has Phase 2 results.
 		// Avoid flicker when Phase 1 snapshots arrive without triage data.
-		if msg.Snapshot.Phase2Ready || len(msg.Snapshot.TriageScores) > 0 {
+		if msg.Snapshot.IsPhase2Ready() || len(msg.Snapshot.TriageScores) > 0 {
 			m.triageScores = msg.Snapshot.TriageScores
 			m.triageReasons = msg.Snapshot.TriageReasons
 			m.unblocksMap = msg.Snapshot.UnblocksMap
@@ -1749,7 +1749,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Regenerate sub-views (Phase 1 data; Phase 2 will update via Phase2ReadyMsg)
-		m.insightsPanel.SetInsights(m.snapshot.Insights)
+		m.insightsPanel.SetInsights(m.snapshot.GetInsights())
 		m.insightsPanel.issueMap = m.issueMap
 		bodyHeight := m.height - 1
 		if bodyHeight < 5 {
@@ -1867,10 +1867,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.board.SetIssues(filteredIssues)
 			}
-			if m.snapshot != nil && m.snapshot.GraphLayout != nil && len(filteredIssues) == len(m.snapshot.Issues) {
+			if m.snapshot != nil && m.snapshot.GetGraphLayout() != nil && len(filteredIssues) == len(m.snapshot.Issues) {
 				m.graphView.SetSnapshot(m.snapshot)
 			} else {
-				m.graphView.SetIssues(filteredIssues, &m.snapshot.Insights)
+				ins := m.snapshot.GetInsights()
+				m.graphView.SetIssues(filteredIssues, &ins)
 			}
 
 			// Restore selection if possible
@@ -2893,6 +2894,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 			m = m.handleTimeTravelInputKeys(msg)
+			return m, nil
+		}
+
+		// Search/file-tree submodes must consume keys before the global key block.
+		// Otherwise printable input, q, and esc leak into global view toggles and
+		// close the active view instead of updating the focused submode.
+		if m.focused == focusBoard && m.board.IsSearchMode() {
+			if msg.String() == "ctrl+c" {
+				return m, tea.Quit
+			}
+			m = m.handleBoardKeys(msg)
+			return m, nil
+		}
+		if m.focused == focusHistory && (m.historyView.IsSearchActive() || m.historyView.FileTreeHasFocus()) {
+			if msg.String() == "ctrl+c" {
+				return m, tea.Quit
+			}
+			m = m.handleHistoryKeys(msg)
 			return m, nil
 		}
 
@@ -4026,8 +4045,8 @@ func (m Model) handleHistoryKeys(msg tea.KeyMsg) Model {
 			m.statusIsError = false
 			return m
 		case "enter":
-			// Confirm search (just blur input, keep filter active)
-			m.historyView.CancelSearch() // For now, just close search
+			// Confirm search (blur input, keep current query/filter active)
+			m.historyView.FinishSearch()
 			return m
 		default:
 			// Forward to search input
@@ -6063,7 +6082,7 @@ func (m *Model) renderFooter() string {
 	// PHASE 2 PROGRESS - show while metrics are still computing (bv-tspo)
 	// ─────────────────────────────────────────────────────────────────────────
 	phase2Section := ""
-	if m.snapshot != nil && !m.snapshot.Phase2Ready {
+	if m.snapshot != nil && !m.snapshot.IsPhase2Ready() {
 		phase2Style := lipgloss.NewStyle().
 			Background(ColorBgHighlight).
 			Foreground(ColorInfo).
@@ -6565,7 +6584,7 @@ func (m *Model) refreshBoardAndGraphForCurrentFilter() {
 	}
 
 	if m.isGraphView {
-		useSnapshot := m.snapshot != nil && m.snapshot.GraphLayout != nil && len(filteredIssues) == len(m.snapshot.Issues)
+		useSnapshot := m.snapshot != nil && m.snapshot.GetGraphLayout() != nil && len(filteredIssues) == len(m.snapshot.Issues)
 		if useSnapshot {
 			if recipeFilterActive {
 				useSnapshot = m.snapshot.RecipeName == m.activeRecipe.Name && m.snapshot.RecipeHash == recipeFingerprint(m.activeRecipe)
@@ -6620,7 +6639,7 @@ func (m *Model) applyFilter() {
 	} else {
 		m.board.SetIssues(filteredIssues)
 	}
-	if m.snapshot != nil && m.snapshot.GraphLayout != nil && m.currentFilter == "all" && len(filteredIssues) == len(m.snapshot.Issues) {
+	if m.snapshot != nil && m.snapshot.GetGraphLayout() != nil && m.currentFilter == "all" && len(filteredIssues) == len(m.snapshot.Issues) {
 		m.graphView.SetSnapshot(m.snapshot)
 	} else {
 		// Generate insights for graph view (for metric rankings and sorting)

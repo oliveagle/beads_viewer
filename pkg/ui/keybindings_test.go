@@ -314,6 +314,8 @@ func keyMsg(key string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyEnter}
 	case "esc":
 		return tea.KeyMsg{Type: tea.KeyEsc}
+	case "backspace":
+		return tea.KeyMsg{Type: tea.KeyBackspace}
 	case "tab":
 		return tea.KeyMsg{Type: tea.KeyTab}
 	case "up":
@@ -586,6 +588,127 @@ func TestKeyDispatch_Regression_FInHistoryTogglesFileTree(t *testing.T) {
 	// Verify we're still in history (file tree is internal state)
 	t.Logf("focus=history key=f expected=toggle_file_tree actual=focused:%v fileTreeFocus:%v",
 		m.focused, m.historyView.FileTreeHasFocus())
+}
+
+func TestKeyDispatch_Regression_BoardSearchConsumesInput(t *testing.T) {
+	m := setupTestModel(t)
+
+	updated, _ := m.Update(keyMsg("b"))
+	m = updated.(Model)
+	if m.focused != focusBoard || !m.isBoardView {
+		t.Fatalf("Expected board view after 'b', got focused=%v isBoardView=%v", m.focused, m.isBoardView)
+	}
+
+	updated, _ = m.Update(keyMsg("/"))
+	m = updated.(Model)
+	if !m.board.IsSearchMode() {
+		t.Fatal("expected board search mode after '/'")
+	}
+
+	updated, _ = m.Update(keyMsg("b"))
+	m = updated.(Model)
+	if got := m.board.SearchQuery(); got != "b" {
+		t.Fatalf("expected board search query %q, got %q", "b", got)
+	}
+	if m.focused != focusBoard || !m.isBoardView {
+		t.Fatalf("expected board search input to stay in board view, got focused=%v isBoardView=%v", m.focused, m.isBoardView)
+	}
+
+	updated, _ = m.Update(keyMsg("backspace"))
+	m = updated.(Model)
+	if got := m.board.SearchQuery(); got != "" {
+		t.Fatalf("expected board search query to clear after backspace, got %q", got)
+	}
+
+	updated, _ = m.Update(keyMsg("esc"))
+	m = updated.(Model)
+	if m.board.IsSearchMode() {
+		t.Fatal("expected esc to cancel board search mode")
+	}
+	if m.focused != focusBoard || !m.isBoardView {
+		t.Fatalf("expected esc to remain in board view, got focused=%v isBoardView=%v", m.focused, m.isBoardView)
+	}
+}
+
+func TestKeyDispatch_Regression_HistorySearchConsumesGlobalKeys(t *testing.T) {
+	m := setupTestModel(t)
+
+	updated, _ := m.Update(keyMsg("h"))
+	m = updated.(Model)
+	if m.focused != focusHistory || !m.isHistoryView {
+		t.Fatalf("Expected history view after 'h', got focused=%v isHistoryView=%v", m.focused, m.isHistoryView)
+	}
+
+	updated, _ = m.Update(keyMsg("/"))
+	m = updated.(Model)
+	if !m.historyView.IsSearchActive() {
+		t.Fatal("expected history search mode after '/'")
+	}
+
+	updated, _ = m.Update(keyMsg("q"))
+	m = updated.(Model)
+	if got := m.historyView.SearchQuery(); got != "q" {
+		t.Fatalf("expected history search query %q, got %q", "q", got)
+	}
+	if m.focused != focusHistory || !m.isHistoryView {
+		t.Fatalf("expected history search input to stay in history view, got focused=%v isHistoryView=%v", m.focused, m.isHistoryView)
+	}
+
+	updated, _ = m.Update(keyMsg("esc"))
+	m = updated.(Model)
+	if m.historyView.IsSearchActive() {
+		t.Fatal("expected esc to cancel history search mode")
+	}
+	if m.focused != focusHistory || !m.isHistoryView {
+		t.Fatalf("expected esc to remain in history view, got focused=%v isHistoryView=%v", m.focused, m.isHistoryView)
+	}
+}
+
+func TestKeyDispatch_Regression_HistorySearchEnterKeepsFilter(t *testing.T) {
+	m := setupTestModel(t)
+
+	updated, _ := m.Update(keyMsg("h"))
+	m = updated.(Model)
+	if m.focused != focusHistory || !m.isHistoryView {
+		t.Fatalf("Expected history view after 'h', got focused=%v isHistoryView=%v", m.focused, m.isHistoryView)
+	}
+
+	updated, _ = m.Update(keyMsg("/"))
+	m = updated.(Model)
+	updated, _ = m.Update(keyMsg("q"))
+	m = updated.(Model)
+
+	updated, _ = m.Update(keyMsg("enter"))
+	m = updated.(Model)
+
+	if m.historyView.IsSearchActive() {
+		t.Fatal("expected enter to exit active history search input")
+	}
+	if got := m.historyView.SearchQuery(); got != "q" {
+		t.Fatalf("expected enter to preserve history search query %q, got %q", "q", got)
+	}
+	if m.focused != focusHistory || !m.isHistoryView {
+		t.Fatalf("expected enter to remain in history view, got focused=%v isHistoryView=%v", m.focused, m.isHistoryView)
+	}
+}
+
+func TestKeyDispatch_Regression_HistoryFileTreeEscStaysInHistory(t *testing.T) {
+	m := setupTestModel(t)
+	m.isHistoryView = true
+	m.focused = focusHistory
+	m.historyView = NewHistoryModel(createTestHistoryReportWithFiles(), testTheme())
+	m.historyView.ToggleFileTree()
+	m.historyView.SetFileTreeFocus(true)
+
+	updated, _ := m.Update(keyMsg("esc"))
+	m = updated.(Model)
+
+	if !m.isHistoryView || m.focused != focusHistory {
+		t.Fatalf("expected esc in history file tree to stay in history view, got focused=%v isHistoryView=%v", m.focused, m.isHistoryView)
+	}
+	if m.historyView.FileTreeHasFocus() {
+		t.Fatal("expected esc in history file tree to leave file-tree focus")
+	}
 }
 
 // TestKeyDispatch_ModalConsumesAllKeys verifies that modals consume all keys

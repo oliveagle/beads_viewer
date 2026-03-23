@@ -736,6 +736,12 @@ func (h *HistoryModel) CancelSearch() {
 	h.applySearchFilter()
 }
 
+// FinishSearch exits active search input while preserving the current query and filter.
+func (h *HistoryModel) FinishSearch() {
+	h.searchActive = false
+	h.searchInput.Blur()
+}
+
 // ClearSearch clears the search query but keeps search mode active
 func (h *HistoryModel) ClearSearch() {
 	h.searchInput.SetValue("")

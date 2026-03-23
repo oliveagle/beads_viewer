@@ -3,6 +3,7 @@ package loader
 import (
 	"bufio"
 	"bytes"
+	stdjson "encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -14,6 +15,11 @@ import (
 
 	"github.com/Dicklesworthstone/beads_viewer/pkg/model"
 )
+
+// beadsMetadata is the subset of .beads/metadata.json we care about.
+type beadsMetadata struct {
+	Backend string `json:"backend"`
+}
 
 // BeadsDirEnvVar is the name of the environment variable for custom beads directory
 const BeadsDirEnvVar = "BEADS_DIR"
@@ -96,6 +102,100 @@ func resolveBeadsDB(dbPath string) (string, error) {
 
 	// It's a file -- return the parent directory
 	return filepath.Dir(dbPath), nil
+}
+
+// IsBDWorkspace returns true when the given .beads directory belongs to a
+// modern Dolt-native bd workspace. Detection is based on the presence of a
+// .beads/dolt/ subdirectory or a metadata.json declaring backend=dolt.
+func IsBDWorkspace(beadsDir string) bool {
+	if beadsDir == "" {
+		return false
+	}
+
+	// Fast path: modern beads stores Dolt data under .beads/dolt/.
+	if info, err := os.Stat(filepath.Join(beadsDir, "dolt")); err == nil && info.IsDir() {
+		return true
+	}
+
+	// Fallback: metadata.json may explicitly record the backend.
+	metaPath := filepath.Join(beadsDir, "metadata.json")
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		return false
+	}
+
+	var meta beadsMetadata
+	if err := stdjson.Unmarshal(data, &meta); err != nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(meta.Backend), "dolt")
+}
+
+// PrepareWorkspaceForRead resolves the active JSONL file for the workspace.
+// For bd workspaces it can refresh .beads/issues.jsonl by running
+// `bd export -o .beads/issues.jsonl` before reading. For regular br workspaces
+// it falls through to FindJSONLPath.
+func PrepareWorkspaceForRead(repoPath string, refreshBDExport bool, warnFunc func(string)) (string, string, error) {
+	beadsDir, err := GetBeadsDir(repoPath)
+	if err != nil {
+		return "", "", err
+	}
+	jsonlPath, err := PrepareBeadsDirForRead(beadsDir, refreshBDExport, warnFunc)
+	if err != nil {
+		return "", "", err
+	}
+	return beadsDir, jsonlPath, nil
+}
+
+// PrepareBeadsDirForRead resolves the active JSONL file for an explicit .beads
+// directory. In bd workspaces the compatibility export at .beads/issues.jsonl
+// is used (optionally refreshed). In regular br workspaces FindJSONLPath is
+// used as before.
+func PrepareBeadsDirForRead(beadsDir string, refreshBDExport bool, warnFunc func(string)) (string, error) {
+	if IsBDWorkspace(beadsDir) {
+		issuesPath := filepath.Join(beadsDir, "issues.jsonl")
+		if refreshBDExport {
+			if err := exportBDIssuesJSONL(beadsDir, issuesPath); err != nil {
+				if _, statErr := os.Stat(issuesPath); statErr == nil {
+					if warnFunc != nil {
+						warnFunc(fmt.Sprintf("bd export failed, using existing issues.jsonl: %v", err))
+					}
+				} else {
+					return "", fmt.Errorf("failed to refresh bd compatibility JSONL: %w", err)
+				}
+			}
+		}
+
+		if _, err := os.Stat(issuesPath); err != nil {
+			return "", fmt.Errorf("no compatibility JSONL found at %s; run 'bd export -o .beads/issues.jsonl'", issuesPath)
+		}
+
+		return issuesPath, nil
+	}
+
+	return FindJSONLPath(beadsDir)
+}
+
+// exportBDIssuesJSONL runs `bd export -o <issuesPath>` to produce a fresh
+// JSONL compatibility file from the bd workspace's Dolt database.
+func exportBDIssuesJSONL(beadsDir, issuesPath string) error {
+	if _, err := exec.LookPath("bd"); err != nil {
+		return fmt.Errorf("bd binary not found in PATH")
+	}
+
+	repoRoot := filepath.Dir(beadsDir)
+	cmd := exec.Command("bd", "export", "-o", issuesPath)
+	cmd.Dir = repoRoot
+	cmd.Env = append(os.Environ(), fmt.Sprintf("%s=%s", BeadsDirEnvVar, beadsDir))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg == "" {
+			return err
+		}
+		return fmt.Errorf("%w: %s", err, msg)
+	}
+	return nil
 }
 
 // getMainRepoRoot returns the root directory of the main git repository.
@@ -192,7 +292,7 @@ func FindJSONLPathWithWarnings(beadsDir string, warnFunc func(msg string)) (stri
 
 	// Warn about detected merge artifacts
 	if len(mergeArtifacts) > 0 && warnFunc != nil {
-		warnFunc(fmt.Sprintf("Merge artifact files detected: %s. Consider running 'br clean' to remove them.",
+		warnFunc(fmt.Sprintf("Merge artifact files detected: %s. Clean them up before relying on the JSONL view.",
 			strings.Join(mergeArtifacts, ", ")))
 	}
 
@@ -200,12 +300,13 @@ func FindJSONLPathWithWarnings(beadsDir string, warnFunc func(msg string)) (stri
 		return "", fmt.Errorf("no beads JSONL file found in %s", beadsDir)
 	}
 
-	// Priority order for beads files - matches bd's canonical naming (bv-96):
-	// 1. beads.jsonl (canonical - what bd writes to in stealth/direct mode)
-	// 2. issues.jsonl (legacy from steveyegge/beads pre-commit hook)
-	// 3. beads.base.jsonl (fallback, may be present during merge resolution)
-	// 4. First candidate
+	// Priority order for beads files:
+	// Default (br stack): beads.jsonl -> issues.jsonl -> beads.base.jsonl
+	// In bd workspaces: issues.jsonl is the canonical compatibility export
 	preferredNames := PreferredJSONLNames
+	if IsBDWorkspace(beadsDir) {
+		preferredNames = []string{"issues.jsonl", "beads.jsonl", "beads.base.jsonl"}
+	}
 
 	for _, preferred := range preferredNames {
 		for _, name := range candidates {

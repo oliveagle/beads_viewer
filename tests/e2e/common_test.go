@@ -18,6 +18,7 @@ import (
 
 var bvBinaryPath string
 var bvBinaryDir string
+var e2eHomeDir string
 
 var (
 	scriptTUISupported      = true
@@ -28,6 +29,17 @@ func TestMain(m *testing.M) {
 	// Prevent any test from accidentally opening a browser
 	os.Setenv("BV_NO_BROWSER", "1")
 	os.Setenv("BV_TEST_MODE", "1")
+	os.Setenv("BV_NO_SAVED_CONFIG", "1")
+
+	// Isolate tests from any real user config or auth state on the machine.
+	homeDir, err := os.MkdirTemp("", "bv-e2e-home-*")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create isolated HOME for e2e tests: %v\n", err)
+		os.Exit(1)
+	}
+	e2eHomeDir = homeDir
+	os.Setenv("HOME", homeDir)
+	os.Setenv("XDG_CONFIG_HOME", filepath.Join(homeDir, ".config"))
 
 	// Build the binary once for all tests
 	if err := buildBvOnce(); err != nil {
@@ -40,6 +52,9 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	if bvBinaryDir != "" {
 		_ = os.RemoveAll(bvBinaryDir)
+	}
+	if e2eHomeDir != "" {
+		_ = os.RemoveAll(e2eHomeDir)
 	}
 	os.Exit(code)
 }

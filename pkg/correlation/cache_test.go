@@ -1,6 +1,9 @@
 package correlation
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -577,11 +580,172 @@ func TestCachedCorrelator_Singleflight(t *testing.T) {
 	}
 }
 
+func TestCachedCorrelator_DoesNotCacheWhenHeadChangesDuringGenerate(t *testing.T) {
+	repoPath := initTempGitRepo(t)
+	correlator := NewCachedCorrelator(repoPath)
+	beads := []BeadInfo{{ID: "test-1", Status: "open"}}
+	opts := CorrelatorOptions{Limit: 10}
+
+	started := make(chan struct{})
+	releaseGenerate := make(chan struct{})
+	var generateCalls atomic.Int32
+
+	correlator.generateReportFn = func([]BeadInfo, CorrelatorOptions) (*HistoryReport, error) {
+		generateCalls.Add(1)
+		close(started)
+		<-releaseGenerate
+		return &HistoryReport{
+			GeneratedAt: time.Now().UTC(),
+			Histories:   map[string]BeadHistory{"test-1": {BeadID: "test-1"}},
+		}, nil
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := correlator.GenerateReport(beads, opts)
+		done <- err
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for report generation to start")
+	}
+
+	advanceGitHead(t, repoPath, "head-shift")
+	close(releaseGenerate)
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("GenerateReport returned error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for GenerateReport to finish")
+	}
+
+	if stats := correlator.CacheStats(); stats.CacheSize != 0 {
+		t.Fatalf("expected cache to stay empty after HEAD changed mid-flight, got size %d", stats.CacheSize)
+	}
+	if got := generateCalls.Load(); got != 1 {
+		t.Fatalf("generate calls = %d, want 1", got)
+	}
+}
+
+func TestCachedCorrelator_XFetchUsesClonedInputs(t *testing.T) {
+	repoPath := initTempGitRepo(t)
+	correlator := NewCachedCorrelator(repoPath)
+	correlator.shouldRefreshFn = func(time.Time, time.Duration, float64, time.Time) bool { return true }
+
+	beads := []BeadInfo{{ID: "test-1", Status: "open"}}
+	opts := CorrelatorOptions{Limit: 10}
+
+	refreshStarted := make(chan struct{})
+	releaseRefresh := make(chan struct{})
+	refreshDone := make(chan struct{})
+	var callCount atomic.Int32
+	var refreshStatus atomic.Value
+
+	correlator.generateReportFn = func(in []BeadInfo, _ CorrelatorOptions) (*HistoryReport, error) {
+		call := callCount.Add(1)
+		if call == 2 {
+			close(refreshStarted)
+			<-releaseRefresh
+			if len(in) > 0 {
+				refreshStatus.Store(in[0].Status)
+			}
+			close(refreshDone)
+		}
+		return &HistoryReport{
+			GeneratedAt: time.Now().UTC(),
+			Histories:   map[string]BeadHistory{"test-1": {BeadID: "test-1"}},
+		}, nil
+	}
+
+	// Prime the cache.
+	if _, err := correlator.GenerateReport(beads, opts); err != nil {
+		t.Fatalf("initial GenerateReport failed: %v", err)
+	}
+	key, err := BuildCacheKey(repoPath, beads, opts)
+	if err != nil {
+		t.Fatalf("BuildCacheKey failed: %v", err)
+	}
+	report, ok := correlator.cache.Get(key)
+	if !ok {
+		t.Fatal("expected primed cache entry")
+	}
+	correlator.cache.PutWithDuration(key, report, time.Second)
+
+	// Trigger the xfetch refresh and then mutate caller-owned input after return.
+	if _, err := correlator.GenerateReport(beads, opts); err != nil {
+		t.Fatalf("cached GenerateReport failed: %v", err)
+	}
+
+	select {
+	case <-refreshStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for background refresh to start")
+	}
+
+	beads[0].Status = "closed"
+	close(releaseRefresh)
+
+	select {
+	case <-refreshDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for background refresh to finish")
+	}
+
+	got, _ := refreshStatus.Load().(string)
+	if got != "open" {
+		t.Fatalf("expected background refresh to observe cloned bead status %q, got %q", "open", got)
+	}
+}
+
 func TestBuildCacheKey_Error(t *testing.T) {
 	// Should fail without a git repo
 	_, err := BuildCacheKey("/nonexistent/path", nil, CorrelatorOptions{})
 	if err == nil {
 		t.Error("BuildCacheKey should fail for invalid repo path")
+	}
+}
+
+func initTempGitRepo(t *testing.T) string {
+	t.Helper()
+
+	repoPath := t.TempDir()
+	runGit(t, repoPath, "init")
+	runGit(t, repoPath, "config", "user.email", "test@example.com")
+	runGit(t, repoPath, "config", "user.name", "Test User")
+
+	initialFile := filepath.Join(repoPath, "README.md")
+	if err := os.WriteFile(initialFile, []byte("initial\n"), 0o644); err != nil {
+		t.Fatalf("write initial file: %v", err)
+	}
+	runGit(t, repoPath, "add", "README.md")
+	runGit(t, repoPath, "commit", "-m", "initial commit")
+	return repoPath
+}
+
+func advanceGitHead(t *testing.T, repoPath, name string) {
+	t.Helper()
+
+	filePath := filepath.Join(repoPath, name+".txt")
+	if err := os.WriteFile(filePath, []byte(time.Now().UTC().Format(time.RFC3339Nano)), 0o644); err != nil {
+		t.Fatalf("write %s: %v", filePath, err)
+	}
+	runGit(t, repoPath, "add", filepath.Base(filePath))
+	runGit(t, repoPath, "commit", "-m", name)
+}
+
+func runGit(t *testing.T, repoPath string, args ...string) {
+	t.Helper()
+
+	cmd := exec.Command("git", args...)
+	cmd.Dir = repoPath
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, out)
 	}
 }
 

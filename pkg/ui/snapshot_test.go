@@ -904,8 +904,9 @@ func TestWithPhase2_ReturnsNewPointer(t *testing.T) {
 	}
 }
 
-// TestWithPhase2_SharesIssues verifies that WithPhase2 shares Issues slice via pointer aliasing.
-func TestWithPhase2_SharesIssues(t *testing.T) {
+// TestWithPhase2_DetachesMutableIssueState verifies that Phase 2 snapshots do not
+// alias the original snapshot's mutable issue backing structures.
+func TestWithPhase2_DetachesMutableIssueState(t *testing.T) {
 	issues := []model.Issue{
 		{ID: "A", Title: "Issue A", Status: model.StatusOpen, IssueType: model.TypeTask},
 		{ID: "B", Title: "Issue B", Status: model.StatusOpen, IssueType: model.TypeTask},
@@ -921,15 +922,21 @@ func TestWithPhase2_SharesIssues(t *testing.T) {
 
 	newSnapshot := original.WithPhase2(stats, ins, issues, analyzer)
 
-	// Verify pointer aliasing - Issues slice should be the same underlying array
-	if &original.Issues[0] != &newSnapshot.Issues[0] {
-		t.Error("WithPhase2 should share Issues slice via pointer aliasing")
+	if &original.Issues[0] == &newSnapshot.Issues[0] {
+		t.Error("WithPhase2 should clone Issues to keep the new snapshot detached")
 	}
-	if original.IssueMap != nil && newSnapshot.IssueMap != nil {
-		// IssueMap should be the same pointer
-		if len(original.IssueMap) != len(newSnapshot.IssueMap) {
-			t.Error("IssueMap should be shared")
-		}
+	if got := newSnapshot.IssueMap["A"]; got == nil {
+		t.Fatal("new snapshot issue map should contain cloned issues")
+	} else if got != &newSnapshot.Issues[0] && got != &newSnapshot.Issues[1] {
+		t.Fatal("new snapshot issue map should point into the cloned issue slice")
+	}
+	if original.IssueMap != nil && newSnapshot.IssueMap != nil && original.IssueMap["A"] == newSnapshot.IssueMap["A"] {
+		t.Error("WithPhase2 should rebuild IssueMap to avoid stale pointers into the old slice")
+	}
+
+	original.Issues[0].Title = "mutated old snapshot"
+	if got := newSnapshot.IssueMap["A"].Title; got == "mutated old snapshot" {
+		t.Error("mutating the old snapshot should not affect the cloned Phase 2 snapshot")
 	}
 }
 
@@ -1007,4 +1014,64 @@ func TestWithPhase2_TriagePopulation(t *testing.T) {
 	t.Logf("BlockerSet: %d entries", len(newSnapshot.BlockerSet))
 	t.Logf("QuickWinSet: %d entries", len(newSnapshot.QuickWinSet))
 	t.Logf("UnblocksMap: %d entries", len(newSnapshot.UnblocksMap))
+}
+
+// TestWithPhase2_TreeDeepCopy verifies that tree structures are deep copied,
+// so mutations to one snapshot's tree don't affect another.
+func TestWithPhase2_TreeDeepCopy(t *testing.T) {
+	issues := []model.Issue{
+		{ID: "root", Title: "Root", Status: model.StatusOpen, IssueType: model.TypeEpic},
+		{ID: "child", Title: "Child", Status: model.StatusOpen, IssueType: model.TypeTask,
+			Dependencies: []*model.Dependency{{DependsOnID: "root", Type: model.DepBlocks}}},
+	}
+
+	cfg := snapshotBuildConfigDefault()
+	original := NewSnapshotBuilder(issues).WithBuildConfig(cfg).Build()
+
+	// Skip if tree wasn't built
+	if len(original.TreeRoots) == 0 || len(original.TreeNodeMap) == 0 {
+		t.Skip("Snapshot builder didn't populate tree structures")
+	}
+
+	// Capture original tree state
+	originalRootExpanded := original.TreeRoots[0].Expanded
+	originalRootPtr := original.TreeRoots[0]
+
+	analyzer := analysis.NewAnalyzer(issues)
+	stats := analyzer.AnalyzeAsync(nil)
+	stats.WaitForPhase2()
+	ins := stats.GenerateInsights(len(issues))
+
+	newSnapshot := original.WithPhase2(stats, ins, issues, analyzer)
+
+	// Verify deep copy - pointers should be different
+	if len(newSnapshot.TreeRoots) == 0 {
+		t.Fatal("New snapshot has no TreeRoots")
+	}
+	if newSnapshot.TreeRoots[0] == originalRootPtr {
+		t.Error("TreeRoots[0] should be a different pointer after deep copy")
+	}
+
+	// Verify mutation isolation - toggle Expanded on new snapshot
+	newSnapshot.TreeRoots[0].Expanded = !newSnapshot.TreeRoots[0].Expanded
+
+	// Original should be unchanged
+	if original.TreeRoots[0].Expanded != originalRootExpanded {
+		t.Error("Mutating new snapshot's tree affected original snapshot")
+	}
+
+	// Verify TreeNodeMap is also deep copied
+	for id, origNode := range original.TreeNodeMap {
+		newNode, ok := newSnapshot.TreeNodeMap[id]
+		if !ok {
+			t.Errorf("TreeNodeMap missing key %q in new snapshot", id)
+			continue
+		}
+		if newNode == origNode {
+			t.Errorf("TreeNodeMap[%q] should be a different pointer after deep copy", id)
+		}
+		if newNode.Issue == origNode.Issue {
+			t.Errorf("TreeNodeMap[%q] should rebind Issue pointers to cloned snapshot issues", id)
+		}
+	}
 }

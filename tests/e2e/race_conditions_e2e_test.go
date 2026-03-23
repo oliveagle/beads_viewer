@@ -97,7 +97,8 @@ func TestRace_ConcurrentTriageRequests(t *testing.T) {
 
 	var issueLines []byte
 	for i := 0; i < 50; i++ {
-		line := []byte(`{"id":"issue-` + string(rune('A'+i%26)) + string(rune('0'+i/26)) + `","title":"Issue ` + string(rune('A'+i)) + `","status":"open","priority":` + string(rune('0'+i%5)) + `}` + "\n")
+		idSuffix := string(rune('A'+i%26)) + string(rune('0'+i/26))
+		line := []byte(`{"id":"issue-` + idSuffix + `","title":"Issue ` + idSuffix + `","status":"open","priority":` + string(rune('0'+i%5)) + `}` + "\n")
 		issueLines = append(issueLines, line...)
 	}
 

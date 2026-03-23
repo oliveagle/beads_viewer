@@ -923,8 +923,11 @@ func getRobotDiskCachedStats(fullKey string) (stats *GraphStats, xfetchRefresh b
 		return nil, false, false
 	}
 
-	// XFetch: probabilistically suggest early refresh to prevent cache stampedes
+	// XFetch: probabilistically suggest early refresh to prevent cache stampedes.
+	// Do not refresh again before at least one prior compute-duration window has
+	// elapsed, otherwise newly written entries can get selected immediately.
 	shouldXFetchRefresh := entry.ComputeDuration > 0 &&
+		!now.Before(entry.CreatedAt.Add(entry.ComputeDuration)) &&
 		xfetch.ShouldRefresh(entry.CreatedAt, entry.ComputeDuration, 1.0, now)
 
 	entry.AccessedAt = now.UTC()

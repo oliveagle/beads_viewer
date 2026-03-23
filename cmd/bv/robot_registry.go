@@ -75,6 +75,13 @@ func (e *robotHandlerExitError) Error() string {
 	return fmt.Sprintf("robot handler exit %d", e.ExitCode)
 }
 
+func (e *robotHandlerExitError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
 type phaseOneRobotHandlerConfig struct {
 	RobotHelpFlag    *bool
 	RobotSchemaFlag  *bool

@@ -31,10 +31,10 @@ func runRobotValidationCommand(t *testing.T, bv, workDir string, args ...string)
 	return stdout.String(), stderr.String(), err
 }
 
-func assertModifierRejected(t *testing.T, bv string, args []string, wantMessage string) {
+func assertCommandRejected(t *testing.T, bv, workDir string, args []string, wantMessage string) {
 	t.Helper()
 
-	stdout, stderr, err := runRobotValidationCommand(t, bv, t.TempDir(), args...)
+	stdout, stderr, err := runRobotValidationCommand(t, bv, workDir, args...)
 	if err == nil {
 		t.Fatalf("expected command to fail\nstdout=%s\nstderr=%s", stdout, stderr)
 	}
@@ -52,6 +52,11 @@ func assertModifierRejected(t *testing.T, bv string, args []string, wantMessage 
 	if stderr == "" || !bytes.Contains([]byte(stderr), []byte(wantMessage)) {
 		t.Fatalf("stderr missing expected error\nstdout=%s\nstderr=%s", stdout, stderr)
 	}
+}
+
+func assertModifierRejected(t *testing.T, bv string, args []string, wantMessage string) {
+	t.Helper()
+	assertCommandRejected(t, bv, t.TempDir(), args, wantMessage)
 }
 
 func TestModifierFlagRejection_RobotDiff(t *testing.T) {
@@ -88,4 +93,22 @@ func TestValidCombo_RobotDiffWithDiffSince(t *testing.T) {
 	if !json.Valid([]byte(stdout)) {
 		t.Fatalf("stdout is not valid JSON\nstdout=%s\nstderr=%s", stdout, stderr)
 	}
+}
+
+func TestValueValidation_InvalidGraphFormat(t *testing.T) {
+	bv := buildBvBinary(t)
+	repoDir := createSimpleRepo(t, 2)
+	assertCommandRejected(t, bv, repoDir, []string{"--robot-graph", "--graph-format=bogus"}, `Error: invalid --graph-format "bogus" (expected one of json, dot, mermaid)`)
+}
+
+func TestValueValidation_InvalidScriptFormat(t *testing.T) {
+	bv := buildBvBinary(t)
+	repoDir := createSimpleRepo(t, 2)
+	assertCommandRejected(t, bv, repoDir, []string{"--emit-script", "--script-format=bogus"}, `Error: invalid --script-format "bogus" (expected one of bash, fish, zsh)`)
+}
+
+func TestRobotDispatchRejectsMultiplePrimaryCommands(t *testing.T) {
+	bv := buildBvBinary(t)
+	repoDir := createSimpleRepo(t, 2)
+	assertCommandRejected(t, bv, repoDir, []string{"--robot-triage", "--robot-metrics"}, "Error: multiple primary robot commands specified:")
 }

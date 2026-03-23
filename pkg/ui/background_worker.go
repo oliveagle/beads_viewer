@@ -638,6 +638,18 @@ func (w *BackgroundWorker) Stop() {
 		}
 	}
 
+	var pooledRefs []*model.Issue
+	w.mu.Lock()
+	if w.snapshot != nil && len(w.snapshot.pooledIssues) > 0 {
+		pooledRefs = w.snapshot.pooledIssues
+		w.snapshot.pooledIssues = nil
+	}
+	w.snapshot = nil
+	w.mu.Unlock()
+	if len(pooledRefs) > 0 {
+		loader.ReturnIssuePtrsToPool(pooledRefs)
+	}
+
 	w.logEvent(LogLevelInfo, "worker_stop", nil)
 	w.closeTraceFile()
 }

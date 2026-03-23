@@ -202,6 +202,15 @@ type modifierFlagRule struct {
 	requires []string
 }
 
+type enumFlagRule struct {
+	name    string
+	allowed []string
+}
+
+type primaryCommandGroup struct {
+	flags []string
+}
+
 func validateModifierFlags(flags *flag.FlagSet, rules []modifierFlagRule) error {
 	for _, rule := range rules {
 		if !flags.Changed(rule.modifier) {
@@ -215,6 +224,68 @@ func validateModifierFlags(flags *flag.FlagSet, rules []modifierFlagRule) error 
 	}
 
 	return nil
+}
+
+func validateEnumFlags(flags *flag.FlagSet, rules []enumFlagRule) error {
+	for _, rule := range rules {
+		if !flags.Changed(rule.name) {
+			continue
+		}
+
+		value, err := flags.GetString(rule.name)
+		if err != nil {
+			return fmt.Errorf("reading --%s: %w", rule.name, err)
+		}
+
+		normalized := strings.ToLower(strings.TrimSpace(value))
+		if normalized == "" {
+			return fmt.Errorf("invalid --%s %q (expected one of %s)", rule.name, value, joinAllowedValues(rule.allowed))
+		}
+
+		valid := false
+		for _, allowed := range rule.allowed {
+			if normalized == allowed {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			return fmt.Errorf("invalid --%s %q (expected one of %s)", rule.name, value, joinAllowedValues(rule.allowed))
+		}
+	}
+
+	return nil
+}
+
+func validateExclusivePrimaryCommands(flags *flag.FlagSet, groups []primaryCommandGroup) error {
+	activeGroups := make([]string, 0, len(groups))
+	for _, group := range groups {
+		active := activePrimaryFlags(flags, group.flags)
+		if len(active) == 0 {
+			continue
+		}
+		activeGroups = append(activeGroups, strings.Join(active, ", "))
+	}
+
+	if len(activeGroups) <= 1 {
+		return nil
+	}
+
+	return fmt.Errorf("multiple primary robot commands specified: %s", strings.Join(activeGroups, " | "))
+}
+
+func activePrimaryFlags(flags *flag.FlagSet, names []string) []string {
+	active := make([]string, 0, len(names))
+	for _, name := range names {
+		if isFlagActive(flags, name) {
+			active = append(active, "--"+name)
+		}
+	}
+	return active
+}
+
+func joinAllowedValues(values []string) string {
+	return strings.Join(values, ", ")
 }
 
 func hasActiveRequiredFlag(flags *flag.FlagSet, names ...string) bool {
@@ -628,7 +699,58 @@ func main() {
 			{modifier: "debug-width", requires: []string{"debug-render"}},
 			{modifier: "debug-height", requires: []string{"debug-render"}},
 		}
+		enumRules := []enumFlagRule{
+			{name: "graph-format", allowed: []string{"json", "dot", "mermaid"}},
+			{name: "script-format", allowed: []string{"bash", "fish", "zsh"}},
+		}
+		primaryRobotCommandGroups := []primaryCommandGroup{
+			{flags: []string{"robot-help"}},
+			{flags: []string{"robot-docs"}},
+			{flags: []string{"robot-insights"}},
+			{flags: []string{"robot-plan"}},
+			{flags: []string{"robot-priority"}},
+			{flags: []string{"robot-triage", "robot-next", "robot-triage-by-track", "robot-triage-by-label"}},
+			{flags: []string{"robot-diff"}},
+			{flags: []string{"robot-recipes"}},
+			{flags: []string{"robot-label-health"}},
+			{flags: []string{"robot-label-flow"}},
+			{flags: []string{"robot-label-attention"}},
+			{flags: []string{"robot-alerts"}},
+			{flags: []string{"robot-metrics"}},
+			{flags: []string{"robot-schema"}},
+			{flags: []string{"robot-suggest"}},
+			{flags: []string{"robot-graph"}},
+			{flags: []string{"robot-search"}},
+			{flags: []string{"robot-drift"}},
+			{flags: []string{"robot-history", "bead-history"}},
+			{flags: []string{"robot-explain-correlation"}},
+			{flags: []string{"robot-confirm-correlation"}},
+			{flags: []string{"robot-reject-correlation"}},
+			{flags: []string{"robot-correlation-stats"}},
+			{flags: []string{"robot-orphans"}},
+			{flags: []string{"robot-file-beads"}},
+			{flags: []string{"robot-file-hotspots"}},
+			{flags: []string{"robot-impact"}},
+			{flags: []string{"robot-file-relations"}},
+			{flags: []string{"robot-related"}},
+			{flags: []string{"robot-blocker-chain"}},
+			{flags: []string{"robot-impact-network"}},
+			{flags: []string{"robot-causality"}},
+			{flags: []string{"robot-sprint-list"}},
+			{flags: []string{"robot-sprint-show"}},
+			{flags: []string{"robot-forecast"}},
+			{flags: []string{"robot-burndown"}},
+			{flags: []string{"robot-capacity"}},
+		}
 		if err := validateModifierFlags(flag.CommandLine, modifierRules); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		if err := validateEnumFlags(flag.CommandLine, enumRules); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		if err := validateExclusivePrimaryCommands(flag.CommandLine, primaryRobotCommandGroups); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}

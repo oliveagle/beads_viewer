@@ -1363,11 +1363,12 @@ func (a *Analyzer) AnalyzeAsyncWithConfig(ctx context.Context, config AnalysisCo
 		robotCacheKey = dataHash + "|" + configHash
 
 		if cached, xfetchRefresh, ok := getRobotDiskCachedStats(robotCacheKey); ok {
-			// XFetch suggests early refresh to prevent stampedes, but for robot mode
-			// we still return the cached value immediately. The next invocation
-			// will recompute if needed.
-			_ = xfetchRefresh // Future: could trigger async refresh
-			return cached
+			if !xfetchRefresh || ctx.Err() != nil {
+				return cached
+			}
+			// XFetch selected this caller to refresh early. Fall through and
+			// recompute now so the cache is actually renewed instead of serving
+			// the stale entry forever.
 		}
 	}
 
@@ -2332,10 +2333,11 @@ func findArticulationPoints(adj undirectedAdjacency) map[int64]bool {
 
 // GetActionableIssues returns issues that can be worked on immediately.
 // An issue is actionable if:
-// 1. It is not closed or tombstone
-// 2. All its blocking dependencies (type "blocks") are closed or tombstone
-// 3. None of its parent issues (via "parent-child" deps) are themselves blocked
-//    (transitive parent-blocked propagation, matching br's behavior)
+//  1. It is not closed or tombstone
+//  2. All its blocking dependencies (type "blocks") are closed or tombstone
+//  3. None of its parent issues (via "parent-child" deps) are themselves blocked
+//     (transitive parent-blocked propagation, matching br's behavior)
+//
 // Missing blockers don't block (graceful degradation).
 // Returns list sorted by ID for determinism.
 func (a *Analyzer) GetActionableIssues() []model.Issue {

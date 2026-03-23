@@ -479,6 +479,86 @@ func TestRobotDiskCache_WritesAndHits(t *testing.T) {
 	}
 }
 
+func TestRobotDiskCache_XFetchRefreshRecomputes(t *testing.T) {
+	t.Setenv("BV_ROBOT", "1")
+	cacheDir := t.TempDir()
+	t.Setenv("BV_CACHE_DIR", cacheDir)
+
+	issues := []model.Issue{
+		{ID: "A", Status: model.StatusOpen},
+		{ID: "B", Status: model.StatusOpen, Dependencies: []*model.Dependency{
+			{DependsOnID: "A", Type: model.DepBlocks},
+		}},
+	}
+
+	an := analysis.NewAnalyzer(issues)
+	config := analysis.ConfigForSize(2, 1)
+	stats1 := an.AnalyzeAsyncWithConfig(context.Background(), config)
+	stats1.WaitForPhase2()
+
+	dataHash := analysis.ComputeDataHash(issues)
+	configHash := analysis.ComputeConfigHash(&config)
+	fullKey := dataHash + "|" + configHash
+	cachePath := filepath.Join(cacheDir, "analysis_cache.json")
+
+	type cacheEntry struct {
+		CreatedAt       time.Time `json:"created_at"`
+		AccessedAt      time.Time `json:"accessed_at"`
+		ComputeDuration int64     `json:"compute_duration"`
+	}
+	type cacheFile struct {
+		Version int                   `json:"version"`
+		Entries map[string]cacheEntry `json:"entries"`
+	}
+
+	readCache := func() cacheFile {
+		t.Helper()
+		raw, err := os.ReadFile(cachePath)
+		if err != nil {
+			t.Fatalf("reading cache file: %v", err)
+		}
+		var cf cacheFile
+		if err := json.Unmarshal(raw, &cf); err != nil {
+			t.Fatalf("parsing cache json: %v", err)
+		}
+		return cf
+	}
+
+	cf := readCache()
+	entry, ok := cf.Entries[fullKey]
+	if !ok {
+		t.Fatalf("expected cache entry for key %q", fullKey)
+	}
+	staleCreatedAt := time.Now().Add(-365 * 24 * time.Hour).UTC()
+	entry.CreatedAt = staleCreatedAt
+	entry.AccessedAt = staleCreatedAt
+	entry.ComputeDuration = int64(time.Millisecond)
+	cf.Entries[fullKey] = entry
+
+	raw, err := json.Marshal(cf)
+	if err != nil {
+		t.Fatalf("marshalling cache json: %v", err)
+	}
+	if err := os.WriteFile(cachePath, raw, 0o644); err != nil {
+		t.Fatalf("writing cache file: %v", err)
+	}
+
+	time.Sleep(10 * time.Millisecond)
+
+	an2 := analysis.NewAnalyzer(issues)
+	stats2 := an2.AnalyzeAsyncWithConfig(context.Background(), config)
+	stats2.WaitForPhase2()
+	if !stats2.IsPhase2Ready() {
+		t.Fatal("expected recomputed stats to reach phase2 ready")
+	}
+
+	cf = readCache()
+	entry = cf.Entries[fullKey]
+	if !entry.CreatedAt.After(staleCreatedAt) {
+		t.Fatalf("expected xfetch refresh to rewrite CreatedAt, got %v", entry.CreatedAt)
+	}
+}
+
 func TestRobotDiskCache_EvictsToMaxEntries(t *testing.T) {
 	t.Setenv("BV_ROBOT", "1")
 	cacheDir := t.TempDir()

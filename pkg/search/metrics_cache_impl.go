@@ -11,6 +11,7 @@ import (
 )
 
 const defaultPageRank = 0.5
+const metricsCacheRefreshFlightKey = "refresh"
 
 // metricsCache is the default MetricsCache implementation.
 type metricsCache struct {
@@ -39,7 +40,7 @@ type AnalyzerMetricsLoader struct {
 
 // NewAnalyzerMetricsLoader creates a loader that derives metrics from issues.
 func NewAnalyzerMetricsLoader(issues []model.Issue) *AnalyzerMetricsLoader {
-	return &AnalyzerMetricsLoader{issues: issues}
+	return &AnalyzerMetricsLoader{issues: cloneMetricsLoaderIssues(issues)}
 }
 
 // WithCache configures a custom analysis cache for this loader.
@@ -99,7 +100,7 @@ func (l *AnalyzerMetricsLoader) ComputeDataHash() (string, error) {
 // between separate LoadMetrics and ComputeDataHash calls.
 func (l *AnalyzerMetricsLoader) LoadMetricsWithHash() (map[string]IssueMetrics, string, error) {
 	if len(l.issues) == 0 {
-		return map[string]IssueMetrics{}, "empty", nil
+		return map[string]IssueMetrics{}, analysis.ComputeDataHash(l.issues), nil
 	}
 
 	cached := analysis.NewCachedAnalyzer(l.issues, l.cache)
@@ -275,10 +276,15 @@ func (c *metricsCache) ensureFresh() error {
 	// Use singleflight to prevent cache stampede: all goroutines detecting
 	// the same staleness (same hash) will coalesce into a single Refresh call.
 	// The "winning" goroutine runs Refresh; others block and receive the same result.
-	_, err, _ = c.sf.Do(hash, func() (interface{}, error) {
+	_, err, _ = c.sf.Do(metricsCacheRefreshFlightKey, func() (interface{}, error) {
 		// Double-check freshness: another goroutine may have just refreshed
+		latestHash, err := c.loader.ComputeDataHash()
+		if err != nil {
+			return nil, err
+		}
+
 		c.mu.RLock()
-		stillStale := c.metrics == nil || c.dataHash == "" || c.dataHash != hash
+		stillStale := c.metrics == nil || c.dataHash == "" || c.dataHash != latestHash
 		c.mu.RUnlock()
 		if !stillStale {
 			return nil, nil
@@ -295,4 +301,16 @@ func defaultIssueMetrics(issueID string) IssueMetrics {
 		Priority:     2,
 		BlockerCount: 0,
 	}
+}
+
+func cloneMetricsLoaderIssues(issues []model.Issue) []model.Issue {
+	if len(issues) == 0 {
+		return nil
+	}
+
+	clones := make([]model.Issue, len(issues))
+	for i := range issues {
+		clones[i] = issues[i].Clone()
+	}
+	return clones
 }

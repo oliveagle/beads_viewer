@@ -8419,6 +8419,10 @@ func (m *Model) Stop() {
 		loader.ReturnIssuePtrsToPool(m.pooledIssues)
 		m.pooledIssues = nil
 	}
+	if m.snapshot != nil && len(m.snapshot.pooledIssues) > 0 {
+		loader.ReturnIssuePtrsToPool(m.snapshot.pooledIssues)
+		m.snapshot.pooledIssues = nil
+	}
 }
 
 // clearAttentionOverlay hides the attention overlay and clears its rendered text.

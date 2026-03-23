@@ -82,6 +82,34 @@ func TestPooledIssueSliceIsolation(t *testing.T) {
 	}
 }
 
+func TestPooledIssueEmptySlicesDropPooledCapacity(t *testing.T) {
+	jsonl := `{"id":"A","title":"Issue A","status":"open","issue_type":"task"}`
+
+	pooled, err := ParseIssuesWithOptionsPooled(strings.NewReader(jsonl), ParseOptions{})
+	if err != nil {
+		t.Fatalf("ParseIssuesWithOptionsPooled failed: %v", err)
+	}
+	defer ReturnIssuePtrsToPool(pooled.PoolRefs)
+
+	if len(pooled.Issues) != 1 {
+		t.Fatalf("expected 1 issue, got %d", len(pooled.Issues))
+	}
+
+	issue := pooled.Issues[0]
+	if issue.Labels == nil || issue.Dependencies == nil || issue.Comments == nil {
+		t.Fatalf("expected empty slices to remain non-nil after deep copy")
+	}
+	if cap(issue.Labels) != 0 {
+		t.Fatalf("expected detached Labels capacity 0, got %d", cap(issue.Labels))
+	}
+	if cap(issue.Dependencies) != 0 {
+		t.Fatalf("expected detached Dependencies capacity 0, got %d", cap(issue.Dependencies))
+	}
+	if cap(issue.Comments) != 0 {
+		t.Fatalf("expected detached Comments capacity 0, got %d", cap(issue.Comments))
+	}
+}
+
 // TestPooledIssueRaceDetector runs concurrent operations on pooled issues and
 // the returned issues slice to verify there are no data races.
 // This test MUST pass with -race.
@@ -166,8 +194,8 @@ func TestPooledIssueRaceDetector(t *testing.T) {
 // TestDeepCopyIssueSlices verifies the deep copy helper works correctly.
 func TestDeepCopyIssueSlices(t *testing.T) {
 	issue := &model.Issue{
-		ID:    "test-1",
-		Title: "Test Issue",
+		ID:     "test-1",
+		Title:  "Test Issue",
 		Labels: []string{"bug", "urgent"},
 		Dependencies: []*model.Dependency{
 			{DependsOnID: "dep-1", Type: model.DepBlocks},

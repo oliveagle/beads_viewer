@@ -354,6 +354,7 @@ type CachedCorrelator struct {
 	cache            *HistoryCache
 	sf               singleflight.Group
 	generateReportFn func([]BeadInfo, CorrelatorOptions) (*HistoryReport, error)
+	shouldRefreshFn  func(time.Time, time.Duration, float64, time.Time) bool
 	hits             int64 // Cache hit count (for stats)
 	misses           int64 // Cache miss count (for stats)
 	mu               sync.Mutex
@@ -366,6 +367,7 @@ func NewCachedCorrelator(repoPath string) *CachedCorrelator {
 		correlator:       correlator,
 		cache:            NewHistoryCache(repoPath),
 		generateReportFn: correlator.GenerateReport,
+		shouldRefreshFn:  xfetch.ShouldRefresh,
 	}
 }
 
@@ -376,6 +378,7 @@ func NewCachedCorrelatorWithOptions(repoPath string, maxAge time.Duration, maxSi
 		correlator:       correlator,
 		cache:            NewHistoryCacheWithOptions(repoPath, maxAge, maxSize),
 		generateReportFn: correlator.GenerateReport,
+		shouldRefreshFn:  xfetch.ShouldRefresh,
 	}
 }
 
@@ -394,16 +397,25 @@ func (c *CachedCorrelator) GenerateReport(beads []BeadInfo, opts CorrelatorOptio
 
 		// XFetch: probabilistically trigger background refresh before expiry
 		// This prevents all clients from refreshing simultaneously
-		if computeDuration > 0 && xfetch.ShouldRefresh(createdAt, computeDuration, 1.0, time.Now()) {
+		shouldRefresh := xfetch.ShouldRefresh
+		if c.shouldRefreshFn != nil {
+			shouldRefresh = c.shouldRefreshFn
+		}
+		if computeDuration > 0 && shouldRefresh(createdAt, computeDuration, 1.0, time.Now()) {
+			refreshBeads, refreshOpts := cloneCorrelatorInputs(beads, opts)
 			// Trigger background refresh (non-blocking)
 			go func() {
-				_, _, _ = c.sf.Do("xfetch:"+key.String(), func() (interface{}, error) {
+				_, _, _ = c.sf.Do(key.String(), func() (interface{}, error) {
+					if existing, existingCreatedAt, _, ok := c.cache.GetWithMeta(key); ok && existingCreatedAt.After(createdAt) {
+						return existing, nil
+					}
+
 					start := time.Now()
-					freshReport, err := c.generate(beads, opts)
+					freshReport, err := c.generate(refreshBeads, refreshOpts)
 					if err != nil {
 						return nil, err
 					}
-					c.cache.PutWithDuration(key, freshReport, time.Since(start))
+					c.cacheReportIfCurrent(key, refreshBeads, refreshOpts, freshReport, time.Since(start))
 					return freshReport, nil
 				})
 			}()
@@ -427,7 +439,7 @@ func (c *CachedCorrelator) GenerateReport(beads []BeadInfo, opts CorrelatorOptio
 			return nil, err
 		}
 
-		c.cache.PutWithDuration(key, report, time.Since(start))
+		c.cacheReportIfCurrent(key, beads, opts, report, time.Since(start))
 		return report, nil
 	})
 	if err != nil {
@@ -499,4 +511,31 @@ func (c *CachedCorrelator) recordMiss() {
 	c.mu.Lock()
 	c.misses++
 	c.mu.Unlock()
+}
+
+func (c *CachedCorrelator) cacheReportIfCurrent(expectedKey CacheKey, beads []BeadInfo, opts CorrelatorOptions, report *HistoryReport, computeDuration time.Duration) bool {
+	currentKey, err := BuildCacheKey(c.cache.repoPath, beads, opts)
+	if err != nil {
+		return false
+	}
+	if currentKey != expectedKey {
+		return false
+	}
+
+	c.cache.PutWithDuration(expectedKey, report, computeDuration)
+	return true
+}
+
+func cloneCorrelatorInputs(beads []BeadInfo, opts CorrelatorOptions) ([]BeadInfo, CorrelatorOptions) {
+	clonedBeads := append([]BeadInfo(nil), beads...)
+	clonedOpts := opts
+	if opts.Since != nil {
+		since := *opts.Since
+		clonedOpts.Since = &since
+	}
+	if opts.Until != nil {
+		until := *opts.Until
+		clonedOpts.Until = &until
+	}
+	return clonedBeads, clonedOpts
 }

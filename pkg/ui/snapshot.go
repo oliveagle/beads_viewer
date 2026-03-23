@@ -908,6 +908,82 @@ func (s *DataSnapshot) Age() time.Duration {
 	return time.Since(s.CreatedAt)
 }
 
+// deepCopyTree creates a deep copy of TreeRoots and TreeNodeMap.
+// This is necessary because the tree view mutates node.Expanded and node.Children,
+// which would corrupt shared snapshots if we only did pointer aliasing.
+// Issue pointers are rebound to the provided issueMap so the copied tree stays
+// detached from any legacy slice aliasing of the original snapshot issues.
+// Returns (nil, nil) if input is empty.
+func deepCopyTree(roots []*IssueTreeNode, nodeMap map[string]*IssueTreeNode, issueMap map[string]*model.Issue) ([]*IssueTreeNode, map[string]*IssueTreeNode) {
+	if len(roots) == 0 && len(nodeMap) == 0 {
+		return nil, nil
+	}
+
+	// Build a mapping from old node pointers to new node pointers
+	oldToNew := make(map[*IssueTreeNode]*IssueTreeNode, len(nodeMap))
+
+	// First pass: create shallow copies of all nodes (without Children/Parent links)
+	for _, oldNode := range nodeMap {
+		if oldNode == nil {
+			continue
+		}
+		issue := oldNode.Issue
+		if oldNode.Issue != nil && issueMap != nil {
+			if rebound, ok := issueMap[oldNode.Issue.ID]; ok {
+				issue = rebound
+			}
+		}
+		newNode := &IssueTreeNode{
+			Issue:    issue,
+			Expanded: oldNode.Expanded,
+			Depth:    oldNode.Depth,
+			// Children and Parent set in second pass
+		}
+		oldToNew[oldNode] = newNode
+	}
+
+	// Second pass: rebuild Children slices and Parent pointers
+	for oldNode, newNode := range oldToNew {
+		if len(oldNode.Children) > 0 {
+			newNode.Children = make([]*IssueTreeNode, 0, len(oldNode.Children))
+			for _, oldChild := range oldNode.Children {
+				if newChild, ok := oldToNew[oldChild]; ok {
+					newNode.Children = append(newNode.Children, newChild)
+				}
+			}
+		}
+		if oldNode.Parent != nil {
+			if newParent, ok := oldToNew[oldNode.Parent]; ok {
+				newNode.Parent = newParent
+			}
+		}
+	}
+
+	// Build new roots slice
+	var newRoots []*IssueTreeNode
+	if len(roots) > 0 {
+		newRoots = make([]*IssueTreeNode, 0, len(roots))
+		for _, oldRoot := range roots {
+			if newRoot, ok := oldToNew[oldRoot]; ok {
+				newRoots = append(newRoots, newRoot)
+			}
+		}
+	}
+
+	// Build new nodeMap
+	var newNodeMap map[string]*IssueTreeNode
+	if len(nodeMap) > 0 {
+		newNodeMap = make(map[string]*IssueTreeNode, len(nodeMap))
+		for id, oldNode := range nodeMap {
+			if newNode, ok := oldToNew[oldNode]; ok {
+				newNodeMap[id] = newNode
+			}
+		}
+	}
+
+	return newRoots, newNodeMap
+}
+
 // graphLayoutWithRanks returns a new GraphLayout with Phase 2 ranks populated from stats.
 // This is a pure function - it does not modify the input.
 func graphLayoutWithRanks(old *GraphLayout, stats *analysis.GraphStats) *GraphLayout {
@@ -948,12 +1024,19 @@ func graphLayoutWithRanks(old *GraphLayout, stats *analysis.GraphStats) *GraphLa
 }
 
 // WithPhase2 returns a new DataSnapshot with Phase 2 analysis results populated.
-// The new snapshot shares immutable Phase 1 data (Issues, IssueMap, ListItems, etc.)
-// via pointer aliasing and creates new Phase 2 data structures.
+// It keeps read-only Phase 1 structures where safe, but clones issue-backed and
+// tree-backed state so the returned snapshot remains detached from any legacy UI
+// code that may continue mutating slices, maps, or tree expansion state.
 // This is the core method for immutable snapshot updates (bv-f6uz).
 func (s *DataSnapshot) WithPhase2(stats *analysis.GraphStats, insights analysis.Insights, issues []model.Issue, analyzer *analysis.Analyzer) *DataSnapshot {
 	if s == nil {
 		return nil
+	}
+
+	issuesClone := cloneIssuesForAsync(s.Issues)
+	clonedIssueMap := make(map[string]*model.Issue, len(issuesClone))
+	for i := range issuesClone {
+		clonedIssueMap[issuesClone[i].ID] = &issuesClone[i]
 	}
 
 	// Compute triage data from Phase 2 analysis
@@ -990,15 +1073,21 @@ func (s *DataSnapshot) WithPhase2(stats *analysis.GraphStats, insights analysis.
 		}
 	}
 
+	// Deep copy tree structures since tree view mutates node.Expanded and node.Children.
+	// Rebind tree nodes to cloned issues so the new snapshot stays detached from
+	// legacy m.issues sorting and pointer churn.
+	treeRoots, treeNodeMap := deepCopyTree(s.TreeRoots, s.TreeNodeMap, clonedIssueMap)
+
 	return &DataSnapshot{
-		// Shared via pointer aliasing (immutable data from Phase 1)
-		Issues:       s.Issues,
-		IssueMap:     s.IssueMap,
+		// Clone mutable Phase 1 data so the new snapshot stays immutable even if
+		// legacy UI state continues mutating its own slices or maps.
+		Issues:       issuesClone,
+		IssueMap:     clonedIssueMap,
 		pooledIssues: s.pooledIssues,
 		ViewIssues:   s.ViewIssues,
 		ListItems:    s.ListItems,
-		TreeRoots:    s.TreeRoots,
-		TreeNodeMap:  s.TreeNodeMap,
+		TreeRoots:    treeRoots,   // Deep copy - tree view mutates these
+		TreeNodeMap:  treeNodeMap, // Deep copy - tree view mutates these
 		BoardState:   s.BoardState,
 
 		// Updated with Phase 2 data

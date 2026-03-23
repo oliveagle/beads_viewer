@@ -398,6 +398,36 @@ func (s *singleflightMetricsLoader) ComputeDataHash() (string, error) {
 	return s.hash, nil
 }
 
+type driftingHashAtomicLoader struct {
+	hashes       []string
+	hashCalls    atomic.Int32
+	loadCalls    atomic.Int32
+	loadStarted  chan struct{}
+	releaseLoad  chan struct{}
+	loadStarted1 sync.Once
+	metrics      map[string]IssueMetrics
+	finalHash    string
+}
+
+func (d *driftingHashAtomicLoader) LoadMetrics() (map[string]IssueMetrics, error) {
+	return nil, errors.New("unexpected non-atomic load")
+}
+
+func (d *driftingHashAtomicLoader) ComputeDataHash() (string, error) {
+	idx := int(d.hashCalls.Add(1) - 1)
+	if idx >= len(d.hashes) {
+		return d.hashes[len(d.hashes)-1], nil
+	}
+	return d.hashes[idx], nil
+}
+
+func (d *driftingHashAtomicLoader) LoadMetricsWithHash() (map[string]IssueMetrics, string, error) {
+	d.loadCalls.Add(1)
+	d.loadStarted1.Do(func() { close(d.loadStarted) })
+	<-d.releaseLoad
+	return d.metrics, d.finalHash, nil
+}
+
 func TestMetricsCacheEnsureFresh_Singleflight(t *testing.T) {
 	loader := &singleflightMetricsLoader{
 		metrics: map[string]IssueMetrics{
@@ -456,5 +486,113 @@ func TestMetricsCacheEnsureFresh_Singleflight(t *testing.T) {
 	finalCalls := atomic.LoadInt64(&loader.loadCalls)
 	if finalCalls != initialCalls {
 		t.Fatalf("expected no additional loads for fresh cache, got %d more", finalCalls-initialCalls)
+	}
+}
+
+func TestMetricsCacheEnsureFresh_SingleflightAcrossHashDrift(t *testing.T) {
+	loader := &driftingHashAtomicLoader{
+		hashes:      []string{"hash-a", "hash-b", "hash-b"},
+		loadStarted: make(chan struct{}),
+		releaseLoad: make(chan struct{}),
+		metrics: map[string]IssueMetrics{
+			"A": {IssueID: "A", PageRank: 0.9, BlockerCount: 4},
+		},
+		finalHash: "hash-b",
+	}
+
+	cache := NewMetricsCache(loader)
+
+	const workers = 2
+	start := make(chan struct{})
+	var ready sync.WaitGroup
+	ready.Add(workers)
+	var wg sync.WaitGroup
+	wg.Add(workers)
+
+	for i := 0; i < workers; i++ {
+		go func() {
+			defer wg.Done()
+			ready.Done()
+			<-start
+			_, _ = cache.Get("A")
+		}()
+	}
+
+	ready.Wait()
+	close(start)
+
+	select {
+	case <-loader.loadStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for singleflight refresh to start")
+	}
+
+	close(loader.releaseLoad)
+	wg.Wait()
+
+	if got := loader.loadCalls.Load(); got != 1 {
+		t.Fatalf("expected exactly one coalesced refresh despite hash drift, got %d", got)
+	}
+	if got := cache.DataHash(); got != loader.finalHash {
+		t.Fatalf("expected final cache hash %q, got %q", loader.finalHash, got)
+	}
+}
+
+func TestAnalyzerMetricsLoader_LoadMetricsWithHash_EmptyConsistent(t *testing.T) {
+	loader := NewAnalyzerMetricsLoader(nil)
+
+	metrics, hash, err := loader.LoadMetricsWithHash()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(metrics) != 0 {
+		t.Fatalf("expected empty metrics, got %d entries", len(metrics))
+	}
+
+	separateHash, err := loader.ComputeDataHash()
+	if err != nil {
+		t.Fatalf("unexpected hash error: %v", err)
+	}
+	if hash != separateHash {
+		t.Fatalf("expected atomic empty hash %q to match ComputeDataHash %q", hash, separateHash)
+	}
+}
+
+func TestNewAnalyzerMetricsLoader_ClonesIssues(t *testing.T) {
+	now := time.Date(2025, 12, 18, 12, 0, 0, 0, time.UTC)
+	issues := []model.Issue{
+		{
+			ID:        "A",
+			Title:     "Original",
+			Status:    model.StatusOpen,
+			IssueType: model.TypeTask,
+			Priority:  2,
+			CreatedAt: now,
+			UpdatedAt: now,
+			Labels:    []string{"alpha"},
+		},
+	}
+
+	expectedHash := analysis.ComputeDataHash(cloneMetricsLoaderIssues(issues))
+	loader := NewAnalyzerMetricsLoader(issues)
+
+	issues[0].Title = "Mutated"
+	issues[0].Status = model.StatusClosed
+	issues[0].Labels[0] = "beta"
+
+	hash, err := loader.ComputeDataHash()
+	if err != nil {
+		t.Fatalf("unexpected hash error: %v", err)
+	}
+	if hash != expectedHash {
+		t.Fatalf("expected loader hash %q to remain bound to the original issue snapshot, got %q", expectedHash, hash)
+	}
+
+	metrics, err := loader.LoadMetrics()
+	if err != nil {
+		t.Fatalf("unexpected load error: %v", err)
+	}
+	if got := metrics["A"].Status; got != string(model.StatusOpen) {
+		t.Fatalf("expected cloned loader status %q, got %q", model.StatusOpen, got)
 	}
 }

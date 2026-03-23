@@ -140,21 +140,22 @@ func DeepCopyIssueSlices(dst *model.Issue) {
 
 	// Deep copy Dependencies - each Dependency is a pointer, so we copy the slice
 	// but the Dependency structs themselves are not modified by the pool reset.
-	if len(dst.Dependencies) > 0 {
+	// Copy even zero-length non-nil slices to drop pooled backing-array capacity.
+	if dst.Dependencies != nil {
 		oldDeps := dst.Dependencies
 		dst.Dependencies = make([]*model.Dependency, len(oldDeps))
 		copy(dst.Dependencies, oldDeps)
 	}
 
-	// Deep copy Comments - same logic as Dependencies
-	if len(dst.Comments) > 0 {
+	// Deep copy Comments - same logic as Dependencies.
+	if dst.Comments != nil {
 		oldComments := dst.Comments
 		dst.Comments = make([]*model.Comment, len(oldComments))
 		copy(dst.Comments, oldComments)
 	}
 
-	// Deep copy Labels - strings are immutable so copying the slice is sufficient
-	if len(dst.Labels) > 0 {
+	// Deep copy Labels - strings are immutable so copying the slice is sufficient.
+	if dst.Labels != nil {
 		oldLabels := dst.Labels
 		dst.Labels = make([]string, len(oldLabels))
 		copy(dst.Labels, oldLabels)

@@ -14,6 +14,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/Dicklesworthstone/beads_viewer/pkg/loader"
+	"github.com/Dicklesworthstone/beads_viewer/pkg/model"
 	"github.com/Dicklesworthstone/beads_viewer/pkg/recipe"
 )
 
@@ -131,6 +133,67 @@ func TestBackgroundWorker_StartStop(t *testing.T) {
 
 	if worker.State() != WorkerStopped {
 		t.Errorf("Expected stopped state, got %v", worker.State())
+	}
+}
+
+func TestBackgroundWorker_StopReturnsSnapshotPooledIssues(t *testing.T) {
+	tmpDir := t.TempDir()
+	beadsPath := filepath.Join(tmpDir, "beads.jsonl")
+	if err := os.WriteFile(beadsPath, []byte(`{"id":"test-1","title":"Test","status":"open","priority":1,"issue_type":"task"}`+"\n"), 0o644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	worker, err := NewBackgroundWorker(WorkerConfig{BeadsPath: beadsPath})
+	if err != nil {
+		t.Fatalf("NewBackgroundWorker failed: %v", err)
+	}
+
+	pooled := loader.GetIssue()
+	pooled.ID = "pooled-1"
+	pooled.Labels = append(pooled.Labels, "backend")
+	worker.snapshot = &DataSnapshot{
+		Issues:           []model.Issue{{ID: "test-1", Title: "Test", Status: model.StatusOpen}},
+		pooledIssues:     []*model.Issue{pooled},
+		CreatedAt:        time.Now(),
+		Phase2Ready:      true,
+		LoadWarningCount: 0,
+	}
+
+	worker.Stop()
+
+	if pooled.ID != "" {
+		t.Fatalf("expected pooled issue to be reset on Stop, got ID %q", pooled.ID)
+	}
+	if len(pooled.Labels) != 0 {
+		t.Fatalf("expected pooled issue labels to be cleared on Stop, got %v", pooled.Labels)
+	}
+	if worker.snapshot != nil {
+		t.Fatal("expected worker snapshot to be cleared on Stop")
+	}
+}
+
+func TestModelStopReturnsSnapshotPooledIssuesWithoutWorker(t *testing.T) {
+	pooled := loader.GetIssue()
+	pooled.ID = "pooled-model"
+	pooled.Comments = append(pooled.Comments, &model.Comment{ID: 1, Text: "hello"})
+
+	m := Model{
+		snapshot: &DataSnapshot{
+			Issues:       []model.Issue{{ID: "A", Title: "Issue A", Status: model.StatusOpen}},
+			pooledIssues: []*model.Issue{pooled},
+		},
+	}
+
+	m.Stop()
+
+	if pooled.ID != "" {
+		t.Fatalf("expected pooled issue to be reset on Model.Stop, got ID %q", pooled.ID)
+	}
+	if len(pooled.Comments) != 0 {
+		t.Fatalf("expected pooled issue comments to be cleared on Model.Stop, got %d", len(pooled.Comments))
+	}
+	if m.snapshot == nil || len(m.snapshot.pooledIssues) != 0 {
+		t.Fatal("expected snapshot pooled refs to be cleared on Model.Stop")
 	}
 }
 

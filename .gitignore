@@ -58,3 +58,6 @@ target-*/
 
 # Crush tool logs (ephemeral)
 .crush/
+
+# NTM agent session artifacts
+.ntm/

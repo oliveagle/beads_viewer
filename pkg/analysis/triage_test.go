@@ -1452,3 +1452,78 @@ func TestBuildTopPicks_AllBlocked(t *testing.T) {
 		t.Errorf("expected 0 picks when all are blocked, got %d", len(picks))
 	}
 }
+
+// bv-140: Tests for extractDescendantSubgraph and RootIssueID triage scoping
+
+func TestExtractDescendantSubgraph_Basic(t *testing.T) {
+	issues := []model.Issue{
+		{ID: "epic-1", Title: "Epic", Status: model.StatusOpen},
+		{ID: "task-a", Title: "Task A", Status: model.StatusOpen,
+			Dependencies: []*model.Dependency{{IssueID: "task-a", DependsOnID: "epic-1", Type: model.DepBlocks}}},
+		{ID: "task-b", Title: "Task B", Status: model.StatusOpen,
+			Dependencies: []*model.Dependency{{IssueID: "task-b", DependsOnID: "task-a", Type: model.DepBlocks}}},
+		{ID: "unrelated", Title: "Unrelated", Status: model.StatusOpen},
+	}
+
+	result := extractDescendantSubgraph(issues, "epic-1")
+	if len(result) != 3 {
+		t.Fatalf("expected 3 issues (epic-1 + task-a + task-b), got %d", len(result))
+	}
+
+	ids := make(map[string]bool)
+	for _, iss := range result {
+		ids[iss.ID] = true
+	}
+	for _, expected := range []string{"epic-1", "task-a", "task-b"} {
+		if !ids[expected] {
+			t.Errorf("expected %s in subgraph, not found", expected)
+		}
+	}
+	if ids["unrelated"] {
+		t.Errorf("unrelated issue should not be in subgraph")
+	}
+}
+
+func TestExtractDescendantSubgraph_RootOnly(t *testing.T) {
+	issues := []model.Issue{
+		{ID: "solo", Title: "Solo Issue", Status: model.StatusOpen},
+		{ID: "other", Title: "Other Issue", Status: model.StatusOpen},
+	}
+	result := extractDescendantSubgraph(issues, "solo")
+	if len(result) != 1 || result[0].ID != "solo" {
+		t.Errorf("expected only the root issue, got %d issues", len(result))
+	}
+}
+
+func TestExtractDescendantSubgraph_NonexistentRoot(t *testing.T) {
+	issues := []model.Issue{
+		{ID: "a", Title: "A", Status: model.StatusOpen},
+	}
+	result := extractDescendantSubgraph(issues, "nonexistent")
+	if result != nil {
+		t.Errorf("expected nil for nonexistent root, got %d issues", len(result))
+	}
+}
+
+func TestComputeTriageWithOptions_RootIssueID(t *testing.T) {
+	issues := []model.Issue{
+		{ID: "epic-1", Title: "Epic", Status: model.StatusOpen},
+		{ID: "task-a", Title: "Task A", Status: model.StatusOpen,
+			Dependencies: []*model.Dependency{{IssueID: "task-a", DependsOnID: "epic-1", Type: model.DepBlocks}}},
+		{ID: "task-b", Title: "Task B", Status: model.StatusOpen,
+			Dependencies: []*model.Dependency{{IssueID: "task-b", DependsOnID: "task-a", Type: model.DepBlocks}}},
+		{ID: "unrelated", Title: "Unrelated", Status: model.StatusOpen},
+	}
+
+	// Without scoping: all 4 issues counted
+	fullTriage := ComputeTriageWithOptions(issues, TriageOptions{})
+	if fullTriage.ProjectHealth.Counts.Total != 4 {
+		t.Errorf("expected 4 total issues without scoping, got %d", fullTriage.ProjectHealth.Counts.Total)
+	}
+
+	// With scoping to epic-1: only 3 issues (epic-1 + task-a + task-b)
+	scopedTriage := ComputeTriageWithOptions(issues, TriageOptions{RootIssueID: "epic-1"})
+	if scopedTriage.ProjectHealth.Counts.Total != 3 {
+		t.Errorf("expected 3 total issues with RootIssueID=epic-1, got %d", scopedTriage.ProjectHealth.Counts.Total)
+	}
+}

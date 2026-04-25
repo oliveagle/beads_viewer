@@ -175,7 +175,7 @@ func TestBackgroundWorker_StopReturnsSnapshotPooledIssues(t *testing.T) {
 func TestModelStopReturnsSnapshotPooledIssuesWithoutWorker(t *testing.T) {
 	pooled := loader.GetIssue()
 	pooled.ID = "pooled-model"
-	pooled.Comments = append(pooled.Comments, &model.Comment{ID: 1, Text: "hello"})
+	pooled.Comments = append(pooled.Comments, &model.Comment{ID: "1", Text: "hello"})
 
 	m := Model{
 		snapshot: &DataSnapshot{

@@ -224,7 +224,7 @@ func TestDependency_Struct(t *testing.T) {
 func TestComment_Struct(t *testing.T) {
 	now := time.Now()
 	comment := &Comment{
-		ID:        1,
+		ID:        "1",
 		IssueID:   "A",
 		Author:    "user",
 		Text:      "hello",
@@ -236,6 +236,53 @@ func TestComment_Struct(t *testing.T) {
 	}
 	if comment.Text != "hello" {
 		t.Errorf("Text mismatch")
+	}
+}
+
+// Regression test for issue #145: beads v1.0+ writes Comment.ID as a
+// UUIDv7 string. Earlier versions wrote it as an integer; both shapes
+// must round-trip through json.Unmarshal so existing JSONL files keep
+// loading after the schema change.
+func TestComment_UnmarshalJSON_AcceptsStringAndNumberIDs(t *testing.T) {
+	cases := []struct {
+		name    string
+		raw     string
+		wantID  string
+	}{
+		{
+			name:   "uuidv7 string id (beads v1.0+)",
+			raw:    `{"id":"019d9b8d-e35f-7ce4-9714-d304b1eb90b0","issue_id":"X","author":"a","text":"t","created_at":"2026-04-17T13:07:41Z"}`,
+			wantID: "019d9b8d-e35f-7ce4-9714-d304b1eb90b0",
+		},
+		{
+			name:   "integer id (legacy beads)",
+			raw:    `{"id":42,"issue_id":"X","author":"a","text":"t","created_at":"2026-04-17T13:07:41Z"}`,
+			wantID: "42",
+		},
+		{
+			name:   "missing id",
+			raw:    `{"issue_id":"X","author":"a","text":"t","created_at":"2026-04-17T13:07:41Z"}`,
+			wantID: "",
+		},
+		{
+			name:   "null id",
+			raw:    `{"id":null,"issue_id":"X","author":"a","text":"t","created_at":"2026-04-17T13:07:41Z"}`,
+			wantID: "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var c Comment
+			if err := json.Unmarshal([]byte(tc.raw), &c); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if c.ID != tc.wantID {
+				t.Fatalf("ID: want %q, got %q", tc.wantID, c.ID)
+			}
+			if c.IssueID != "X" || c.Author != "a" || c.Text != "t" {
+				t.Fatalf("non-ID fields not populated: %+v", c)
+			}
+		})
 	}
 }
 
@@ -623,7 +670,7 @@ func TestIssue_Clone(t *testing.T) {
 			{IssueID: "TEST-1", DependsOnID: "TEST-2", Type: DepBlocks},
 		},
 		Comments: []*Comment{
-			{ID: 1, IssueID: "TEST-1", Author: "user", Text: "comment"},
+			{ID: "1", IssueID: "TEST-1", Author: "user", Text: "comment"},
 		},
 	}
 

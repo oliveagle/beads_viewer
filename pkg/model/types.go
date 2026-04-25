@@ -1,7 +1,9 @@
 package model
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -227,13 +229,58 @@ func (d DependencyType) IsBlocking() bool {
 	return d == "" || d == DepBlocks
 }
 
-// Comment represents a comment on an issue
+// Comment represents a comment on an issue.
+//
+// ID is intentionally a string: beads v1.0+ writes UUIDv7 string IDs,
+// but legacy data and tests may still produce integer IDs. Encoding the
+// field as a string with a json.Number-tolerant unmarshaller (see
+// UnmarshalJSON below) lets the loader accept either shape without
+// dropping the comment from the parsed issue (issue #145).
 type Comment struct {
-	ID        int64     `json:"id"`
+	ID        string    `json:"id"`
 	IssueID   string    `json:"issue_id"`
 	Author    string    `json:"author"`
 	Text      string    `json:"text"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+// UnmarshalJSON accepts ID as either a string (UUIDv7, the v1.0+ format)
+// or a JSON number (legacy integer-id JSONL written by older beads
+// versions and present in some test fixtures). Numbers are stringified
+// preserving their original textual form so round-tripping a legacy
+// numeric id back through the export does not silently lose precision.
+func (c *Comment) UnmarshalJSON(data []byte) error {
+	type rawComment struct {
+		ID        json.RawMessage `json:"id"`
+		IssueID   string          `json:"issue_id"`
+		Author    string          `json:"author"`
+		Text      string          `json:"text"`
+		CreatedAt time.Time       `json:"created_at"`
+	}
+	var raw rawComment
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	c.IssueID = raw.IssueID
+	c.Author = raw.Author
+	c.Text = raw.Text
+	c.CreatedAt = raw.CreatedAt
+	if len(raw.ID) == 0 || string(raw.ID) == "null" {
+		c.ID = ""
+		return nil
+	}
+	// Try as string first (UUIDv7, the v1.0+ format).
+	var s string
+	if err := json.Unmarshal(raw.ID, &s); err == nil {
+		c.ID = s
+		return nil
+	}
+	// Fall back to numeric form (legacy integer ids). Strip leading/
+	// trailing whitespace that JSON might surround the bare number with;
+	// the rest of the literal goes through verbatim so we keep the
+	// caller's exact representation.
+	c.ID = strings.TrimSpace(string(raw.ID))
+	return nil
 }
 
 // Sprint represents a time-boxed period of work

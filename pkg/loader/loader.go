@@ -524,6 +524,26 @@ func parseIssuesWithOptions(r io.Reader, opts ParseOptions, usePool bool) ([]mod
 			line = stripBOM(line)
 		}
 
+		// Dispatch by `_type` so non-issue records in beads JSONL
+		// (e.g. memories, sprints, future record kinds) don't get parsed
+		// as issues and warn-skipped with "issue ID cannot be empty"
+		// on every load (issue #145). Empty / missing `_type` is the
+		// historical "issue" shape and stays the default.
+		switch recordTypeOf(line) {
+		case recordTypeIssue:
+			// fall through to the issue parser below
+		case recordTypeMemory, recordTypeSprint, recordTypeForecast, recordTypeBurndown, recordTypeIgnore:
+			// Recognized non-issue record. The viewer doesn't surface
+			// these yet, so silently skip — we just need to not warn.
+			continue
+		default:
+			// Unknown _type: don't fail, but don't pretend it was an
+			// issue either. A debug-level breadcrumb is enough; the
+			// noisy "issue ID cannot be empty" warning was the actual
+			// bug being reported.
+			continue
+		}
+
 		if usePool {
 			issue := GetIssue()
 			if err := json.Unmarshal(line, issue); err != nil {
@@ -589,6 +609,65 @@ func stripBOM(b []byte) []byte {
 		return b[3:]
 	}
 	return b
+}
+
+// recordType identifies the kind of record a beads JSONL line carries.
+// `bd export` writes mixed records — issues by default plus memories,
+// sprints, forecasts, etc. — and tags each line with a `_type` field
+// (absent on the historical issue-only shape). Dispatching on this
+// before unmarshalling lets the loader stop warning on every memory
+// record (issue #145).
+type recordType int
+
+const (
+	// recordTypeIssue is the default when `_type` is missing or "issue".
+	recordTypeIssue recordType = iota
+	recordTypeMemory
+	recordTypeSprint
+	recordTypeForecast
+	recordTypeBurndown
+	// recordTypeIgnore catches records the viewer currently has no use
+	// for but that are valid beads output (e.g. `_type:"epic_link"`
+	// in some forks); they should be skipped silently rather than
+	// emit a malformed-JSON warning.
+	recordTypeIgnore
+	recordTypeUnknown
+)
+
+// recordTypeOf returns the record kind for a JSONL line by parsing
+// only the `_type` field. Returns recordTypeIssue when `_type` is
+// missing (the historical shape) or set to "issue".
+func recordTypeOf(line []byte) recordType {
+	// Fast path: most production lines are pre-v1.0-style issues with
+	// no `_type` field at all. A bytes.Contains check avoids a JSON
+	// decode for the common case.
+	if !bytes.Contains(line, []byte(`"_type"`)) {
+		return recordTypeIssue
+	}
+	var probe struct {
+		Type string `json:"_type"`
+	}
+	if err := json.Unmarshal(line, &probe); err != nil {
+		// Couldn't even parse the discriminator — fall through to
+		// recordTypeIssue so the regular issue parser produces the
+		// usual "skipping malformed JSON" warning at the existing
+		// site, instead of being silently swallowed here.
+		return recordTypeIssue
+	}
+	switch probe.Type {
+	case "", "issue":
+		return recordTypeIssue
+	case "memory":
+		return recordTypeMemory
+	case "sprint":
+		return recordTypeSprint
+	case "forecast":
+		return recordTypeForecast
+	case "burndown":
+		return recordTypeBurndown
+	default:
+		return recordTypeUnknown
+	}
 }
 
 func normalizeIssueStatus(status model.Status) model.Status {

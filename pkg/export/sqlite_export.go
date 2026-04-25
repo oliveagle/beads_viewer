@@ -291,8 +291,10 @@ func (e *SQLiteExporter) insertComments(db *sql.DB) error {
 				continue
 			}
 			// Use composite ID (issue_id:comment_id) to avoid UNIQUE constraint
-			// violations when exporting workspaces with multiple repos (bv-76)
-			compositeID := fmt.Sprintf("%s:%d", issue.ID, comment.ID)
+			// violations when exporting workspaces with multiple repos (bv-76).
+			// Comment.ID is a string (UUIDv7 in beads v1.0+, integer-as-string
+			// in legacy data), so format with %s.
+			compositeID := fmt.Sprintf("%s:%s", issue.ID, comment.ID)
 			_, err := stmt.Exec(
 				compositeID,
 				issue.ID,
@@ -301,7 +303,7 @@ func (e *SQLiteExporter) insertComments(db *sql.DB) error {
 				comment.CreatedAt.Format(time.RFC3339),
 			)
 			if err != nil {
-				return fmt.Errorf("insert comment %d for issue %s: %w", comment.ID, issue.ID, err)
+				return fmt.Errorf("insert comment %s for issue %s: %w", comment.ID, issue.ID, err)
 			}
 		}
 	}

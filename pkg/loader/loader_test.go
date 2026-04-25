@@ -373,7 +373,7 @@ func TestIssuePoolResetsFields(t *testing.T) {
 	*issue.EstimatedMinutes = 42
 	issue.ExternalRef = &ext
 	issue.Dependencies = append(issue.Dependencies, &model.Dependency{IssueID: "id-1"})
-	issue.Comments = append(issue.Comments, &model.Comment{ID: 1, Text: "note"})
+	issue.Comments = append(issue.Comments, &model.Comment{ID: "1", Text: "note"})
 	issue.Labels = append(issue.Labels, "label-a")
 
 	loader.PutIssue(issue)
@@ -480,6 +480,81 @@ func TestParseIssuesWithOptionsPooled_IssueFilter_SkipsClosed(t *testing.T) {
 	}
 
 	loader.ReturnIssuePtrsToPool(result.PoolRefs)
+}
+
+// Regression test for issue #145: bd export emits memories, sprints,
+// and other non-issue records into the same JSONL stream, tagged with
+// `_type`. The loader must skip them silently rather than try to parse
+// every line as an Issue and warn-spam at TUI exit with "issue ID
+// cannot be empty".
+func TestLoadIssuesFromFile_SkipsNonIssueRecordsByType(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "issues.jsonl")
+	content := strings.Join([]string{
+		`{"id":"REAL-1","title":"A","status":"open","priority":1,"issue_type":"task"}`,
+		`{"_type":"memory","key":"some.key","value":"some value"}`,
+		`{"_type":"issue","id":"REAL-2","title":"B","status":"open","priority":2,"issue_type":"task"}`,
+		`{"_type":"sprint","id":"SP-1","name":"Sprint 1"}`,
+		`{"_type":"forecast","id":"FC-1"}`,
+		`{"_type":"burndown","sprint_id":"SP-1"}`,
+		`{"_type":"future_record_kind","whatever":true}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+
+	var warnings []string
+	opts := loader.ParseOptions{
+		WarningHandler: func(msg string) { warnings = append(warnings, msg) },
+	}
+	issues, err := loader.LoadIssuesFromFileWithOptions(path, opts)
+	if err != nil {
+		t.Fatalf("LoadIssuesFromFileWithOptions failed: %v", err)
+	}
+	if len(issues) != 2 {
+		t.Fatalf("expected 2 issue rows (REAL-1 + REAL-2), got %d", len(issues))
+	}
+	if issues[0].ID != "REAL-1" || issues[1].ID != "REAL-2" {
+		t.Fatalf("unexpected issue IDs: %q, %q", issues[0].ID, issues[1].ID)
+	}
+	if len(warnings) > 0 {
+		t.Fatalf("non-issue records should skip silently, got warnings: %v", warnings)
+	}
+}
+
+// Regression test for issue #145: comments with UUIDv7 string IDs
+// (beads v1.0+) must round-trip through the loader without dropping
+// the parent issue. Pre-fix the loader emitted "skipping malformed
+// JSON ... cannot unmarshal number into Comment.ID of type int64"
+// and silently lost every issue that had at least one comment.
+func TestLoadIssuesFromFile_AcceptsUUIDCommentIDs(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "issues.jsonl")
+	content := `{"id":"WITH-COMMENT","title":"X","status":"open","priority":1,"issue_type":"task","comments":[{"id":"019d9b8d-e35f-7ce4-9714-d304b1eb90b0","issue_id":"WITH-COMMENT","author":"u","text":"hi","created_at":"2026-04-17T13:07:41Z"}]}` + "\n"
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+
+	var warnings []string
+	opts := loader.ParseOptions{
+		WarningHandler: func(msg string) { warnings = append(warnings, msg) },
+	}
+	issues, err := loader.LoadIssuesFromFileWithOptions(path, opts)
+	if err != nil {
+		t.Fatalf("LoadIssuesFromFileWithOptions: %v", err)
+	}
+	if len(issues) != 1 {
+		t.Fatalf("expected 1 issue, got %d (warnings: %v)", len(issues), warnings)
+	}
+	if len(issues[0].Comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(issues[0].Comments))
+	}
+	if issues[0].Comments[0].ID != "019d9b8d-e35f-7ce4-9714-d304b1eb90b0" {
+		t.Fatalf("comment ID round-trip: got %q", issues[0].Comments[0].ID)
+	}
+	if len(warnings) > 0 {
+		t.Fatalf("expected zero warnings, got: %v", warnings)
+	}
 }
 
 func TestLoadIssuesFromFileWithOptionsPooled_ReturnsPoolRefs(t *testing.T) {

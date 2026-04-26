@@ -1555,6 +1555,75 @@ func TestBuildTopPicks_FiltersBlockedItems(t *testing.T) {
 	}
 }
 
+// TestComputeTriage_TopPicksReachActionableBeyondTopN is a regression
+// test for issue #146 / PR #147: when the top opts.TopN scored
+// recommendations are all blocked, top_picks must still surface
+// actionable work from further down the scored set, not return empty.
+// Pre-fix the buildRecommendations call truncated to opts.TopN before
+// buildTopPicks ran its blocked-filter, so a workload of "8 blocked
+// urgent bugs + 1 ready low-priority task" caused `bv --robot-next`
+// to report no work.
+func TestComputeTriage_TopPicksReachActionableBeyondTopN(t *testing.T) {
+	now := time.Date(2026, 4, 26, 12, 0, 0, 0, time.UTC)
+	issues := []model.Issue{
+		{
+			ID:        "ready-low-impact",
+			Title:     "Ready low impact",
+			Status:    model.StatusOpen,
+			Priority:  4,
+			IssueType: model.TypeTask,
+			UpdatedAt: now,
+		},
+	}
+	for i := 0; i < 8; i++ {
+		blockedID := "blocked-urgent-" + string(rune('a'+i))
+		gateID := "zz-gate-" + string(rune('a'+i))
+		issues = append(issues,
+			model.Issue{
+				ID:        blockedID,
+				Title:     "Blocked urgent bug",
+				Status:    model.StatusOpen,
+				Priority:  0,
+				IssueType: model.TypeBug,
+				Labels:    []string{"urgent"},
+				UpdatedAt: now.Add(-30 * 24 * time.Hour),
+				Dependencies: []*model.Dependency{
+					{IssueID: blockedID, DependsOnID: gateID, Type: model.DepBlocks},
+				},
+			},
+			model.Issue{
+				ID:        gateID,
+				Title:     "Gate",
+				Status:    model.StatusOpen,
+				Priority:  4,
+				IssueType: model.TypeTask,
+				UpdatedAt: now,
+			},
+		)
+	}
+
+	analyzer := NewAnalyzer(issues)
+	stats := analyzer.AnalyzeAsync(context.Background())
+	stats.WaitForPhase2()
+
+	// TopN=3 — the top 3 scored items are all the blocked-urgent
+	// bugs. Pre-fix, top_picks would be empty because buildTopPicks
+	// filtered them out and never saw the actionable item further
+	// down the list.
+	triage := ComputeTriageFromAnalyzer(analyzer, stats, issues, TriageOptions{TopN: 3}, now)
+	if len(triage.Recommendations) != 3 {
+		t.Fatalf("recommendations should still be capped at TopN=3, got %d", len(triage.Recommendations))
+	}
+	if len(triage.QuickRef.TopPicks) == 0 {
+		t.Fatal("top picks must surface actionable work that lies past the capped recommendations slice")
+	}
+	for _, pick := range triage.QuickRef.TopPicks {
+		if blockers := analyzer.GetOpenBlockers(pick.ID); len(blockers) > 0 {
+			t.Fatalf("top pick %q is blocked by %v — buildTopPicks must filter blockers", pick.ID, blockers)
+		}
+	}
+}
+
 // TestBuildTopPicks_LimitRespected verifies the limit is respected when filtering.
 func TestBuildTopPicks_LimitRespected(t *testing.T) {
 	recommendations := []Recommendation{

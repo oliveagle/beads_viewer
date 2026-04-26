@@ -471,9 +471,22 @@ func ComputeTriageFromAnalyzer(analyzer *Analyzer, stats *GraphStats, issues []m
 	// Compute enhanced triage scores (bv-147)
 	triageScores := computeTriageScoresFromImpact(impactScores, unblocksMap, analyzer, DefaultTriageScoringOptions())
 
-	// Build recommendations using enhanced scores (bv-148)
-	// Pass triageCtx instead of analyzer for cached blocker lookups (bv-k4az)
-	recommendations := buildRecommendationsFromTriageScores(triageScores, triageCtx, opts.TopN)
+	// Build recommendations using enhanced scores (bv-148).
+	// Top picks need to search the *full* scored set, not the
+	// length-capped recommendations slice — otherwise, when the top
+	// opts.TopN scored items happen to all be blocked, buildTopPicks
+	// filters them out and returns an empty list. `bv --robot-next`
+	// then reports "no actionable work" even though plenty exists
+	// further down the score list (issue #146 / PR #147).
+	//
+	// So: build the recommendations against the full triageScores set
+	// first, slice to opts.TopN for the user-visible recommendations
+	// list, and feed the *unsliced* set into buildTopPicks.
+	allRecommendations := buildRecommendationsFromTriageScores(triageScores, triageCtx, len(triageScores))
+	recommendations := allRecommendations
+	if len(recommendations) > opts.TopN {
+		recommendations = recommendations[:opts.TopN]
+	}
 
 	// Build quick wins
 	quickWins := buildQuickWins(impactScores, unblocksMap, opts.QuickWinN)
@@ -481,8 +494,10 @@ func ComputeTriageFromAnalyzer(analyzer *Analyzer, stats *GraphStats, issues []m
 	// Build blockers to clear (uses cached actionable issues)
 	blockersToClear := buildBlockersToClearWithContext(triageCtx, unblocksMap, opts.BlockerN)
 
-	// Build top picks for quick ref
-	topPicks := buildTopPicks(recommendations, 3)
+	// Build top picks for quick ref. Pass the full set so blocked
+	// high-priority items don't crowd genuine actionable work out of
+	// the picks (issue #146).
+	topPicks := buildTopPicks(allRecommendations, 3)
 
 	// Determine top issue for commands
 	topID := ""

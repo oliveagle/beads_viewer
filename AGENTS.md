@@ -365,7 +365,7 @@ bv --export-pages ./bv-pages --pages-title "Nightly Build"
 
 ### Go Best Practices
 
-Follow all practices in `GOLANG_BEST_PRACTICES.md`. Key points:
+Follow all practices in `docs/planning/GOLANG_BEST_PRACTICES.md`. Key points:
 
 **Error Handling:**
 ```go

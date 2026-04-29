@@ -64,3 +64,6 @@ target-*/
 
 # Local Claude Code per-checkout settings
 .claude/settings.local.json
+
+# Wrangler local cache (account ids, deploy state)
+.wrangler/

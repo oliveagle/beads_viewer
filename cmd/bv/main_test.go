@@ -627,6 +627,12 @@ func TestRobotDocsPreferSafeAgentCommandExamples(t *testing.T) {
 	}
 	requireContainsString(t, commands, "bv robot-next --json | jq -r '.claim_command'")
 	requireContainsString(t, commands, `bv robot-search "authentication" --json`)
+	requireContainsString(t, commands, "BV_OUTPUT_FORMAT=toon bv robot-triage")
+	for _, command := range commands {
+		if strings.Contains(command, "BV_OUTPUT_FORMAT=toon") && strings.Contains(command, "--json") {
+			t.Fatalf("env default example is overridden by --json: %s", command)
+		}
+	}
 }
 
 func TestRobotSchemaCoversDocumentedRobotCommands(t *testing.T) {

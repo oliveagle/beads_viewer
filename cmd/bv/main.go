@@ -8557,7 +8557,7 @@ func generateRobotDocs(topic string) map[string]interface{} {
 		{"description": "Find beads related to a specific file", "command": "bv robot-file-beads README.md --json"},
 		{"description": "Search for issues by keyword", "command": `bv robot-search "authentication" --json`},
 		{"description": "Get TOON output (saves tokens)", "command": "bv robot-triage --toon"},
-		{"description": "Use env for default format", "command": "BV_OUTPUT_FORMAT=toon bv robot-triage --json"},
+		{"description": "Use env for default format", "command": "BV_OUTPUT_FORMAT=toon bv robot-triage"},
 		{"description": "Show token savings estimate", "command": "TOON_STATS=1 bv robot-triage --toon"},
 	}
 

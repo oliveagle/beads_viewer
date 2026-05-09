@@ -206,6 +206,98 @@ func TestUnknownFlagErrorSuggestsNearestFlag(t *testing.T) {
 	}
 }
 
+func TestMissingFlagArgumentErrorSuggestsValueShape(t *testing.T) {
+	exe := buildTestBinary(t)
+
+	stdout, stderr, err := runCommandWithTimeout(t, t.TempDir(), exe, "--name")
+	if err == nil {
+		t.Fatalf("expected missing flag argument to fail\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
+	}
+	if stdout != "" {
+		t.Fatalf("expected empty stdout for missing flag argument, got:\n%s", stdout)
+	}
+	for _, want := range []string{"flag needs an argument: --label", "Use --label <value>."} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr missing %q\nstderr:\n%s", want, stderr)
+		}
+	}
+}
+
+func TestRobotNowHonorsSourceDateEpoch(t *testing.T) {
+	t.Setenv("SOURCE_DATE_EPOCH", "1234567890")
+	requireString(t, robotNow().Format(time.RFC3339), "2009-02-13T23:31:30Z")
+}
+
+func TestAgentIntentArgRewrite(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{
+			name: "json defaults to triage",
+			args: []string{"--json"},
+			want: []string{"--robot-triage", "--format", "json"},
+		},
+		{
+			name: "triage subcommand",
+			args: []string{"triage", "--json", "--name", "backend", "--limit", "3"},
+			want: []string{"--robot-triage", "--format", "json", "--label", "backend", "--robot-max-results", "3"},
+		},
+		{
+			name: "schema subcommand",
+			args: []string{"schema", "triage", "--json"},
+			want: []string{"--robot-schema", "--schema-command", "robot-triage", "--format", "json"},
+		},
+		{
+			name: "search subcommand",
+			args: []string{"search", "login", "oauth", "--json", "--limit=5"},
+			want: []string{"--search", "login oauth", "--robot-search", "--format", "json", "--search-limit=5"},
+		},
+		{
+			name: "graph format positional",
+			args: []string{"graph", "mermaid", "--output", "json"},
+			want: []string{"--robot-graph", "--graph-format", "mermaid", "--format", "json"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			requireArgs(t, rewriteAgentIntentArgs(tt.args), tt.want)
+		})
+	}
+}
+
+func TestAgentIntentAliasesOutputJSON(t *testing.T) {
+	tmpDir := t.TempDir()
+	beads := `{"id":"A","title":"Root","status":"open","priority":1,"issue_type":"task","labels":["backend"]}
+{"id":"B","title":"Blocked","status":"blocked","priority":2,"issue_type":"task","dependencies":[{"depends_on_id":"A","type":"blocks"}]}`
+	if err := os.MkdirAll(filepath.Join(tmpDir, ".beads"), 0755); err != nil {
+		t.Fatalf("mkdir .beads: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, ".beads", "beads.jsonl"), []byte(beads), 0644); err != nil {
+		t.Fatalf("write beads dir: %v", err)
+	}
+
+	exe := buildTestBinary(t)
+	for _, args := range [][]string{
+		{"--json"},
+		{"triage", "--json"},
+		{"capabilities", "--json"},
+		{"docs", "guide", "--json"},
+		{"schema", "triage", "--json"},
+		{"--name", "backend", "--json"},
+	} {
+		stdout, stderr, err := runCommandWithTimeout(t, tmpDir, exe, args...)
+		if err != nil {
+			t.Fatalf("%v failed: %v\nstdout:\n%s\nstderr:\n%s", args, err, stdout, stderr)
+		}
+		if !json.Valid([]byte(stdout)) {
+			t.Fatalf("%v did not return valid JSON\nstdout:\n%s\nstderr:\n%s", args, stdout, stderr)
+		}
+	}
+}
+
 func TestEnumFlagErrorSuggestsNearestValue(t *testing.T) {
 	fs := flag.NewFlagSet("test", flag.ContinueOnError)
 	fs.String("graph-format", "json", "")
@@ -498,6 +590,15 @@ func requireString(t *testing.T, got, want string) {
 	t.Helper()
 	if strings.Compare(got, want) != 0 {
 		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func requireArgs(t *testing.T, got, want []string) {
+	t.Helper()
+	gotJoined := strings.Join(got, "\x00")
+	wantJoined := strings.Join(want, "\x00")
+	if strings.Compare(gotJoined, wantJoined) != 0 {
+		t.Fatalf("args = %#v, want %#v", got, want)
 	}
 }
 

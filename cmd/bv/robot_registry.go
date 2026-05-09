@@ -1709,14 +1709,16 @@ func handleRobotTriage(ctx RobotContext, cfg phaseThreeRobotHandlerConfig) error
 		rootIssueID = *cfg.GraphRoot
 	}
 
-	triage := analysis.ComputeTriageWithOptions(ctx.Issues, analysis.TriageOptions{
+	now := robotNow()
+	triage := analysis.ComputeTriageWithOptionsAndTime(ctx.Issues, analysis.TriageOptions{
 		GroupByTrack:  cfg.RobotTriageByTrackFlag != nil && *cfg.RobotTriageByTrackFlag,
 		GroupByLabel:  cfg.RobotTriageByLabelFlag != nil && *cfg.RobotTriageByLabelFlag,
 		WaitForPhase2: true,
 		UseFastConfig: true,
 		History:       historyReport,
 		RootIssueID:   rootIssueID,
-	})
+	}, now)
+	stabilizeRobotTriageForPinnedClock(&triage)
 
 	var feedbackInfo *analysis.FeedbackJSON
 	if beadsDir, err := loader.GetBeadsDir(""); err == nil {
@@ -1785,7 +1787,7 @@ func handleRobotTriage(ctx RobotContext, cfg phaseThreeRobotHandlerConfig) error
 		Feedback    *analysis.FeedbackJSON `json:"feedback,omitempty"`
 		UsageHints  []string               `json:"usage_hints"`
 	}{
-		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+		GeneratedAt: now.Format(time.RFC3339),
 		DataHash:    ctx.DataHash,
 		AsOf:        ctx.AsOf,
 		AsOfCommit:  ctx.AsOfCommit,

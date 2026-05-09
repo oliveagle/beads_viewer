@@ -461,8 +461,358 @@ func rewriteSingleDashLongFlags(args []string, flags *flag.FlagSet) []string {
 	return rewritten
 }
 
+func rewriteAgentIntentArgs(args []string) []string {
+	if len(args) == 0 {
+		return args
+	}
+
+	if rewritten, ok := rewriteAgentIntentCommand(args); ok {
+		return rewritten
+	}
+
+	rewritten := rewriteAgentIntentFlagAliases(args, "")
+	if containsAgentJSONAlias(args) && !hasPrimaryRobotArg(rewritten) && !hasNonRobotPrimaryArg(rewritten) {
+		return append([]string{"--robot-triage"}, rewritten...)
+	}
+	return rewritten
+}
+
+func rewriteAgentIntentCommand(args []string) ([]string, bool) {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		return nil, false
+	}
+
+	command := strings.ToLower(strings.TrimSpace(args[0]))
+	rest := args[1:]
+	switch command {
+	case "triage", "recommend", "recommendations":
+		return append([]string{"--robot-triage"}, rewriteAgentIntentFlagAliases(rest, "triage")...), true
+	case "next", "pick":
+		return append([]string{"--robot-next"}, rewriteAgentIntentFlagAliases(rest, "next")...), true
+	case "plan":
+		return append([]string{"--robot-plan"}, rewriteAgentIntentFlagAliases(rest, "plan")...), true
+	case "insights", "insight", "analysis", "analyze":
+		return append([]string{"--robot-insights"}, rewriteAgentIntentFlagAliases(rest, "insights")...), true
+	case "priority", "priorities":
+		return append([]string{"--robot-priority"}, rewriteAgentIntentFlagAliases(rest, "priority")...), true
+	case "alerts":
+		return append([]string{"--robot-alerts"}, rewriteAgentIntentFlagAliases(rest, "alerts")...), true
+	case "suggest", "suggestions":
+		return append([]string{"--robot-suggest"}, rewriteAgentIntentFlagAliases(rest, "suggest")...), true
+	case "recipes":
+		return append([]string{"--robot-recipes"}, rewriteAgentIntentFlagAliases(rest, "recipes")...), true
+	case "metrics":
+		return append([]string{"--robot-metrics"}, rewriteAgentIntentFlagAliases(rest, "metrics")...), true
+	case "capabilities", "capability", "manifest":
+		return append([]string{"--robot-capabilities"}, rewriteAgentIntentFlagAliases(rest, "capabilities")...), true
+	case "docs", "doc":
+		return rewriteRobotDocsIntent(rest), true
+	case "schema", "schemas":
+		return rewriteRobotSchemaIntent(rest), true
+	case "search", "find":
+		return rewriteRobotSearchIntent(rest), true
+	case "graph":
+		return rewriteRobotGraphIntent(rest), true
+	case "diff", "changes":
+		return rewriteRobotValueIntent(rest, "diff", "--robot-diff", "--diff-since", ""), true
+	case "history":
+		return rewriteRobotValueIntent(rest, "history", "--robot-history", "--bead-history", ""), true
+	case "labels", "label-health":
+		return append([]string{"--robot-label-health"}, rewriteAgentIntentFlagAliases(rest, "label-health")...), true
+	case "label-flow":
+		return append([]string{"--robot-label-flow"}, rewriteAgentIntentFlagAliases(rest, "label-flow")...), true
+	case "label-attention":
+		return append([]string{"--robot-label-attention"}, rewriteAgentIntentFlagAliases(rest, "label-attention")...), true
+	case "hotspots", "file-hotspots":
+		return append([]string{"--robot-file-hotspots"}, rewriteAgentIntentFlagAliases(rest, "file-hotspots")...), true
+	case "file-beads":
+		return rewriteRobotValueIntent(rest, "file-beads", "", "--robot-file-beads", ""), true
+	case "file-relations":
+		return rewriteRobotValueIntent(rest, "file-relations", "", "--robot-file-relations", ""), true
+	case "impact":
+		return rewriteRobotValueIntent(rest, "impact", "", "--robot-impact", ""), true
+	case "related":
+		return rewriteRobotValueIntent(rest, "related", "", "--robot-related", ""), true
+	case "blockers", "blocker-chain":
+		return rewriteRobotValueIntent(rest, "blocker-chain", "", "--robot-blocker-chain", ""), true
+	case "impact-network":
+		return rewriteRobotValueIntent(rest, "impact-network", "", "--robot-impact-network", "all"), true
+	case "causality":
+		return rewriteRobotValueIntent(rest, "causality", "", "--robot-causality", ""), true
+	case "sprints", "sprint-list":
+		return append([]string{"--robot-sprint-list"}, rewriteAgentIntentFlagAliases(rest, "sprint-list")...), true
+	case "sprint", "sprint-show":
+		return rewriteRobotValueIntent(rest, "sprint-show", "", "--robot-sprint-show", ""), true
+	case "forecast":
+		return rewriteRobotValueIntent(rest, "forecast", "", "--robot-forecast", "all"), true
+	case "capacity":
+		return append([]string{"--robot-capacity"}, rewriteAgentIntentFlagAliases(rest, "capacity")...), true
+	case "burndown":
+		return rewriteRobotValueIntent(rest, "burndown", "", "--robot-burndown", "current"), true
+	default:
+		return nil, false
+	}
+}
+
+func rewriteRobotDocsIntent(rest []string) []string {
+	out := []string{"--robot-docs"}
+	topic := "guide"
+	if len(rest) > 0 && isPositionalValue(rest[0]) {
+		topic = rest[0]
+		rest = rest[1:]
+	}
+	out = append(out, topic)
+	return append(out, rewriteAgentIntentFlagAliases(rest, "docs")...)
+}
+
+func rewriteRobotSchemaIntent(rest []string) []string {
+	out := []string{"--robot-schema"}
+	if len(rest) > 0 && isPositionalValue(rest[0]) {
+		out = append(out, "--schema-command", normalizeRobotCommandName(rest[0]))
+		rest = rest[1:]
+	}
+	return append(out, rewriteAgentIntentFlagAliases(rest, "schema")...)
+}
+
+func rewriteRobotSearchIntent(rest []string) []string {
+	queryParts := make([]string, 0, len(rest))
+	for len(rest) > 0 && isPositionalValue(rest[0]) {
+		queryParts = append(queryParts, rest[0])
+		rest = rest[1:]
+	}
+
+	out := []string{"--robot-search"}
+	if len(queryParts) > 0 {
+		out = append([]string{"--search", strings.Join(queryParts, " ")}, out...)
+	}
+	return append(out, rewriteAgentIntentFlagAliases(rest, "search")...)
+}
+
+func rewriteRobotGraphIntent(rest []string) []string {
+	out := []string{"--robot-graph"}
+	if len(rest) > 0 && isGraphFormat(rest[0]) {
+		out = append(out, "--graph-format", strings.ToLower(rest[0]))
+		rest = rest[1:]
+	}
+	return append(out, rewriteAgentIntentFlagAliases(rest, "graph")...)
+}
+
+func rewriteRobotValueIntent(rest []string, context, boolFlag, valueFlag, defaultValue string) []string {
+	out := make([]string, 0, len(rest)+3)
+	if boolFlag != "" {
+		out = append(out, boolFlag)
+	}
+	if len(rest) > 0 && isPositionalValue(rest[0]) {
+		out = append(out, valueFlag, rest[0])
+		rest = rest[1:]
+	} else if defaultValue != "" {
+		out = append(out, valueFlag, defaultValue)
+	}
+	return append(out, rewriteAgentIntentFlagAliases(rest, context)...)
+}
+
+func rewriteAgentIntentFlagAliases(args []string, context string) []string {
+	rewritten := make([]string, 0, len(args)+2)
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch arg {
+		case "--json":
+			rewritten = append(rewritten, "--format", "json")
+		case "--toon":
+			rewritten = append(rewritten, "--format", "toon")
+		case "--output", "-o":
+			if i+1 < len(args) && isRobotOutputFormat(args[i+1]) {
+				rewritten = append(rewritten, "--format", strings.ToLower(args[i+1]))
+				i++
+			} else {
+				rewritten = append(rewritten, arg)
+			}
+		case "--name":
+			rewritten = append(rewritten, "--label")
+		case "--limit":
+			rewritten = append(rewritten, limitFlagForAgentContext(context))
+		default:
+			rewritten = append(rewritten, rewriteAgentIntentEqualsArg(arg, context))
+		}
+	}
+	return rewritten
+}
+
+func rewriteAgentIntentEqualsArg(arg, context string) string {
+	switch {
+	case arg == "--json=true":
+		return "--format=json"
+	case arg == "--json=false":
+		return "--format=json"
+	case strings.HasPrefix(arg, "--output="):
+		value := strings.TrimPrefix(arg, "--output=")
+		if isRobotOutputFormat(value) {
+			return "--format=" + strings.ToLower(value)
+		}
+	case strings.HasPrefix(arg, "-o="):
+		value := strings.TrimPrefix(arg, "-o=")
+		if isRobotOutputFormat(value) {
+			return "--format=" + strings.ToLower(value)
+		}
+	case strings.HasPrefix(arg, "--name="):
+		return "--label=" + strings.TrimPrefix(arg, "--name=")
+	case strings.HasPrefix(arg, "--limit="):
+		return limitFlagForAgentContext(context) + "=" + strings.TrimPrefix(arg, "--limit=")
+	}
+	return arg
+}
+
+func limitFlagForAgentContext(context string) string {
+	switch context {
+	case "search":
+		return "--search-limit"
+	case "label-attention":
+		return "--attention-limit"
+	case "file-beads":
+		return "--file-beads-limit"
+	case "file-hotspots":
+		return "--hotspots-limit"
+	case "history":
+		return "--history-limit"
+	case "related":
+		return "--related-max-results"
+	case "file-relations":
+		return "--relations-limit"
+	default:
+		return "--robot-max-results"
+	}
+}
+
+func normalizeRobotCommandName(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.HasPrefix(value, "robot-") {
+		return value
+	}
+	return "robot-" + value
+}
+
+func containsAgentJSONAlias(args []string) bool {
+	for i, arg := range args {
+		if arg == "--json" || arg == "--json=true" || strings.EqualFold(arg, "--output=json") || strings.EqualFold(arg, "-o=json") {
+			return true
+		}
+		if (arg == "--output" || arg == "-o") && i+1 < len(args) && strings.EqualFold(args[i+1], "json") {
+			return true
+		}
+	}
+	return false
+}
+
+func hasPrimaryRobotArg(args []string) bool {
+	for _, arg := range args {
+		name := strings.TrimPrefix(strings.SplitN(arg, "=", 2)[0], "--")
+		if _, ok := primaryRobotFlagNames()[name]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func hasNonRobotPrimaryArg(args []string) bool {
+	for _, arg := range args {
+		name := strings.TrimPrefix(strings.SplitN(arg, "=", 2)[0], "--")
+		switch name {
+		case "version", "help", "check-update", "update", "rollback", "pages", "export-pages", "preview-pages", "export-md", "export-graph":
+			return true
+		}
+	}
+	return false
+}
+
+func primaryRobotFlagNames() map[string]bool {
+	return map[string]bool{
+		"robot-help":                true,
+		"robot-capabilities":        true,
+		"robot-docs":                true,
+		"robot-insights":            true,
+		"robot-plan":                true,
+		"robot-priority":            true,
+		"robot-triage":              true,
+		"robot-next":                true,
+		"robot-triage-by-track":     true,
+		"robot-triage-by-label":     true,
+		"robot-diff":                true,
+		"robot-recipes":             true,
+		"robot-metrics":             true,
+		"robot-schema":              true,
+		"robot-suggest":             true,
+		"robot-graph":               true,
+		"robot-search":              true,
+		"robot-drift":               true,
+		"robot-history":             true,
+		"robot-explain-correlation": true,
+		"robot-confirm-correlation": true,
+		"robot-reject-correlation":  true,
+		"robot-correlation-stats":   true,
+		"robot-orphans":             true,
+		"robot-file-beads":          true,
+		"robot-file-hotspots":       true,
+		"robot-impact":              true,
+		"robot-file-relations":      true,
+		"robot-related":             true,
+		"robot-blocker-chain":       true,
+		"robot-impact-network":      true,
+		"robot-causality":           true,
+		"robot-sprint-list":         true,
+		"robot-sprint-show":         true,
+		"robot-forecast":            true,
+		"robot-burndown":            true,
+		"robot-capacity":            true,
+		"robot-label-health":        true,
+		"robot-label-flow":          true,
+		"robot-label-attention":     true,
+	}
+}
+
+func isPositionalValue(arg string) bool {
+	return arg != "" && !strings.HasPrefix(arg, "-")
+}
+
+func isRobotOutputFormat(value string) bool {
+	value = strings.ToLower(strings.TrimSpace(value))
+	return value == "json" || value == "toon"
+}
+
+func isGraphFormat(value string) bool {
+	value = strings.ToLower(strings.TrimSpace(value))
+	return value == "json" || value == "dot" || value == "mermaid"
+}
+
+func robotNow() time.Time {
+	if value := strings.TrimSpace(os.Getenv("SOURCE_DATE_EPOCH")); value != "" {
+		if seconds, err := strconv.ParseInt(value, 10, 64); err == nil {
+			return time.Unix(seconds, 0).UTC()
+		}
+	}
+	return time.Now().UTC()
+}
+
+func sourceDateEpochActive() bool {
+	value := strings.TrimSpace(os.Getenv("SOURCE_DATE_EPOCH"))
+	if value == "" {
+		return false
+	}
+	_, err := strconv.ParseInt(value, 10, 64)
+	return err == nil
+}
+
+func stabilizeRobotTriageForPinnedClock(triage *analysis.TriageResult) {
+	if sourceDateEpochActive() {
+		triage.Meta.ComputeTimeMs = 0
+	}
+}
+
 func enrichFlagParseError(err error, flags *flag.FlagSet) error {
 	if err != nil {
+		if name, ok := missingFlagArgumentName(err.Error()); ok {
+			return fmt.Errorf("%s\nUse --%s <value>. Run `bv --help` for all flags or `bv --robot-help` for agent-focused docs.", err, name)
+		}
+
 		name, ok := unknownLongFlagName(err.Error())
 		if !ok {
 			return err
@@ -482,6 +832,20 @@ func enrichFlagParseError(err error, flags *flag.FlagSet) error {
 	}
 
 	return nil
+}
+
+func missingFlagArgumentName(message string) (string, bool) {
+	const prefix = "flag needs an argument: --"
+	idx := strings.Index(message, prefix)
+	if idx < 0 {
+		return "", false
+	}
+
+	name := strings.TrimSpace(message[idx+len(prefix):])
+	if name == "" {
+		return "", false
+	}
+	return name, true
 }
 
 func unknownLongFlagName(message string) (string, bool) {
@@ -4591,7 +4955,8 @@ func main() {
 
 		return nil
 	})
-	rootCmd.SetArgs(rewriteSingleDashLongFlags(os.Args[1:], rootCmd.Flags()))
+	normalizedArgs := rewriteAgentIntentArgs(os.Args[1:])
+	rootCmd.SetArgs(rewriteSingleDashLongFlags(normalizedArgs, rootCmd.Flags()))
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -7501,12 +7866,29 @@ func generateRobotCapabilities() map[string]interface{} {
 		"commands":              commands,
 		"docs_topics":           robotDocsTopics(),
 		"schema_command":        "bv --robot-schema",
+		"agent_intent_aliases":  agentIntentAliasDocs(),
 		"environment_variables": robotEnvVars(),
 		"exit_codes":            robotExitCodes(),
 		"stream_contract": map[string]string{
 			"stdout": "Structured robot data only for robot commands.",
 			"stderr": "Diagnostics, warnings, and actionable errors.",
 		},
+	}
+}
+
+func agentIntentAliasDocs() []map[string]string {
+	return []map[string]string{
+		{"agent_instinct": "bv --json", "canonical": "bv --robot-triage --format json"},
+		{"agent_instinct": "bv triage --json", "canonical": "bv --robot-triage --format json"},
+		{"agent_instinct": "bv next --json", "canonical": "bv --robot-next --format json"},
+		{"agent_instinct": "bv plan --json", "canonical": "bv --robot-plan --format json"},
+		{"agent_instinct": "bv insights --json", "canonical": "bv --robot-insights --format json"},
+		{"agent_instinct": "bv capabilities --json", "canonical": "bv --robot-capabilities --format json"},
+		{"agent_instinct": "bv docs guide --json", "canonical": "bv --robot-docs guide --format json"},
+		{"agent_instinct": "bv schema triage --json", "canonical": "bv --robot-schema --schema-command robot-triage --format json"},
+		{"agent_instinct": "bv search login oauth --json --limit 5", "canonical": "bv --search 'login oauth' --robot-search --format json --search-limit 5"},
+		{"agent_instinct": "bv graph mermaid --json", "canonical": "bv --robot-graph --graph-format mermaid --format json"},
+		{"agent_instinct": "bv --name backend --json", "canonical": "bv --label backend --robot-triage --format json"},
 	}
 }
 
@@ -7531,12 +7913,15 @@ func generateRobotDocs(topic string) map[string]interface{} {
 			"bv --robot-triage-by-track       # Parallel work streams for multi-agent coordination",
 			"bv --robot-capabilities          # Machine-readable command manifest",
 			"bv --robot-schema                # JSON Schema definitions for all commands",
+			"bv triage --json                 # Agent-intent alias for --robot-triage",
+			"bv capabilities --json           # Agent-intent alias for --robot-capabilities",
 		},
 		"data_source": ".beads/issues.jsonl and git history (correlations)",
 		"output_modes": map[string]string{
 			"json": "Default structured output",
 			"toon": "Token-optimized notation (saves ~30-50% tokens)",
 		},
+		"agent_intent_aliases": agentIntentAliasDocs(),
 	}
 
 	commands := robotCommandDocs()

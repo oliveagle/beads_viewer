@@ -8005,6 +8005,7 @@ type robotCommandDoc struct {
 	KeyFields   []string `json:"key_fields,omitempty"`
 	Params      []string `json:"params,omitempty"`
 	NeedsIssues bool     `json:"needs_issues"`
+	NeedsGit    bool     `json:"needs_git"`
 }
 
 func robotDocsTopics() []string {
@@ -8037,6 +8038,11 @@ func robotExitCodes() map[string]string {
 
 func robotCommandDocs() map[string]robotCommandDoc {
 	return map[string]robotCommandDoc{
+		"robot-help": {
+			Flag:        "--robot-help",
+			Description: "Agent-focused command help. Use robot-docs guide for structured JSON documentation.",
+			NeedsIssues: false,
+		},
 		"robot-triage": {
 			Flag: "--robot-triage", Description: "Unified triage: top picks, recommendations, quick wins, blockers, project health, velocity.",
 			KeyFields:   []string{"triage.quick_ref.top_picks", "triage.recommendations", "triage.quick_wins", "triage.blockers_to_clear", "triage.project_health"},
@@ -8094,6 +8100,12 @@ func robotCommandDocs() map[string]robotCommandDoc {
 			KeyFields:   []string{"tool", "version", "contract_version", "commands", "environment_variables", "exit_codes"},
 			NeedsIssues: false,
 		},
+		"robot-recipes": {
+			Flag:        "--robot-recipes",
+			Description: "Recipe names, descriptions, and usage hints for pre-filtering work.",
+			KeyFields:   []string{"recipes"},
+			NeedsIssues: false,
+		},
 		"robot-schema": {
 			Flag: "--robot-schema", Description: "JSON Schema definitions for all robot command outputs.",
 			KeyFields:   []string{"schema_version", "envelope", "commands"},
@@ -8109,11 +8121,40 @@ func robotCommandDocs() map[string]robotCommandDoc {
 			KeyFields:   []string{"correlations", "confidence", "commit_sha", "bead_id"},
 			Params:      []string{"--bead-history <id>", "--history-since <date>", "--history-limit <n>", "--min-confidence 0.0-1.0"},
 			NeedsIssues: true,
+			NeedsGit:    true,
 		},
 		"robot-diff": {
 			Flag: "--robot-diff", Description: "Changes since a historical point (commit, branch, tag, or date).",
 			Params:      []string{"--diff-since <ref>"},
 			NeedsIssues: true,
+			NeedsGit:    true,
+		},
+		"robot-correlation-stats": {
+			Flag:        "--robot-correlation-stats",
+			Description: "Summary counts for saved correlation feedback.",
+			KeyFields:   []string{"total", "confirmed", "rejected", "by_user"},
+			NeedsIssues: false,
+		},
+		"robot-explain-correlation": {
+			Flag:        "--robot-explain-correlation <sha:bead>",
+			Description: "Explain why a commit is linked to a bead.",
+			KeyFields:   []string{"commit", "bead", "score", "reasons"},
+			NeedsIssues: true,
+			NeedsGit:    true,
+		},
+		"robot-confirm-correlation": {
+			Flag:        "--robot-confirm-correlation <sha:bead>",
+			Description: "Record positive feedback for a commit-to-bead correlation.",
+			Params:      []string{"--correlation-by agent", "--correlation-reason verified"},
+			NeedsIssues: true,
+			NeedsGit:    true,
+		},
+		"robot-reject-correlation": {
+			Flag:        "--robot-reject-correlation <sha:bead>",
+			Description: "Record negative feedback for a commit-to-bead correlation.",
+			Params:      []string{"--correlation-by agent", "--correlation-reason unrelated"},
+			NeedsIssues: true,
+			NeedsGit:    true,
 		},
 		"robot-search": {
 			Flag: "--robot-search", Description: "Semantic vector search over issue titles and descriptions.",
@@ -8150,26 +8191,31 @@ func robotCommandDocs() map[string]robotCommandDoc {
 			Flag: "--robot-orphans", Description: "Orphan commit candidates that should be linked to beads.",
 			Params:      []string{"--orphans-min-score 0-100"},
 			NeedsIssues: true,
+			NeedsGit:    true,
 		},
 		"robot-file-beads": {
 			Flag: "--robot-file-beads <path>", Description: "Beads that touched a specific file path.",
 			Params:      []string{"--file-beads-limit <n>"},
 			NeedsIssues: true,
+			NeedsGit:    true,
 		},
 		"robot-file-hotspots": {
 			Flag: "--robot-file-hotspots", Description: "Files touched by the most beads.",
 			Params:      []string{"--hotspots-limit <n>"},
 			NeedsIssues: true,
+			NeedsGit:    true,
 		},
 		"robot-file-relations": {
 			Flag: "--robot-file-relations <path>", Description: "Files that frequently co-change with a given file.",
 			Params:      []string{"--relations-threshold 0.0-1.0", "--relations-limit <n>"},
 			NeedsIssues: true,
+			NeedsGit:    true,
 		},
 		"robot-related": {
 			Flag: "--robot-related <id>", Description: "Beads related to a specific bead ID.",
 			Params:      []string{"--related-min-relevance 0-100 or 0.0-1.0", "--related-max-results <n>", "--related-include-closed"},
 			NeedsIssues: true,
+			NeedsGit:    true,
 		},
 		"robot-blocker-chain": {
 			Flag:        "--robot-blocker-chain <id>",
@@ -8180,11 +8226,13 @@ func robotCommandDocs() map[string]robotCommandDoc {
 			Flag: "--robot-impact-network [<id>|all]", Description: "Impact network graph (full or subnetwork for a bead).",
 			Params:      []string{"--network-depth 1-3"},
 			NeedsIssues: true,
+			NeedsGit:    true,
 		},
 		"robot-causality": {
 			Flag:        "--robot-causality <id>",
 			Description: "Causal chain analysis for a bead.",
 			NeedsIssues: true,
+			NeedsGit:    true,
 		},
 		"robot-sprint-list": {
 			Flag:        "--robot-sprint-list",
@@ -8220,6 +8268,7 @@ func robotCommandDocs() map[string]robotCommandDoc {
 			Flag:        "--robot-impact <path[,path...]>",
 			Description: "Analyze bead impact for files that may be modified.",
 			NeedsIssues: true,
+			NeedsGit:    true,
 		},
 	}
 }
@@ -8237,11 +8286,12 @@ func generateRobotCapabilities() map[string]interface{} {
 		doc := docs[name]
 		entry := map[string]interface{}{
 			"name":                 name,
-			"flag":                 doc.Flag,
+			"flag":                 robotFlagExampleForm(doc.Flag),
 			"description":          doc.Description,
 			"preferred_invocation": preferredRobotInvocation(name, doc),
 			"accepted_invocations": acceptedRobotInvocations(name, doc),
 			"needs_issues":         doc.NeedsIssues,
+			"needs_git":            doc.NeedsGit,
 		}
 		if len(doc.KeyFields) > 0 {
 			entry["key_fields"] = doc.KeyFields
@@ -8291,6 +8341,8 @@ func acceptedRobotInvocations(commandName string, doc robotCommandDoc) []string 
 
 func preferredRobotInvocationOverride(commandName string) string {
 	switch commandName {
+	case "robot-help":
+		return "bv robot-help --json"
 	case "robot-search":
 		return `bv robot-search "login oauth" --json`
 	case "robot-diff":
@@ -8307,6 +8359,12 @@ func preferredRobotInvocationOverride(commandName string) string {
 		return "bv robot-graph mermaid --json"
 	case "robot-orphans":
 		return "bv robot-orphans --orphans-min-score 30 --json"
+	case "robot-explain-correlation":
+		return "bv robot-explain-correlation deadbeef:ISSUE_ID --json"
+	case "robot-confirm-correlation":
+		return "bv robot-confirm-correlation deadbeef:ISSUE_ID --correlation-by agent --json"
+	case "robot-reject-correlation":
+		return "bv robot-reject-correlation deadbeef:ISSUE_ID --correlation-by agent --json"
 	case "robot-file-beads":
 		return "bv robot-file-beads README.md --json"
 	case "robot-file-relations":
@@ -8332,6 +8390,11 @@ func preferredRobotInvocationOverride(commandName string) string {
 
 func acceptedRobotInvocationOverrides(commandName string) []string {
 	switch commandName {
+	case "robot-help":
+		return []string{
+			"bv robot-help --json",
+			"bv robot-docs guide --json",
+		}
 	case "robot-search":
 		return []string{
 			`bv --search "login oauth" --robot-search --format json`,
@@ -8369,6 +8432,19 @@ func robotExampleForms(values []string) []string {
 	return examples
 }
 
+func robotCommandDocsForAgentOutput() map[string]robotCommandDoc {
+	raw := robotCommandDocs()
+	docs := make(map[string]robotCommandDoc, len(raw))
+	for name, doc := range raw {
+		doc.Flag = robotFlagExampleForm(doc.Flag)
+		if len(doc.Params) > 0 {
+			doc.Params = robotExampleForms(doc.Params)
+		}
+		docs[name] = doc
+	}
+	return docs
+}
+
 func robotFlagExampleForm(flag string) string {
 	replacements := []struct {
 		old string
@@ -8377,6 +8453,7 @@ func robotFlagExampleForm(flag string) string {
 		{"[<id>|all]", "all"},
 		{"<path[,path...]>", "README.md"},
 		{"<sprint|current>", "current"},
+		{"<sha:bead>", "deadbeef:ISSUE_ID"},
 		{"<id|all>", "all"},
 		{"<query>", `"login oauth"`},
 		{"<topic>", "guide"},
@@ -8450,7 +8527,7 @@ func generateRobotDocs(topic string) map[string]interface{} {
 		"agent_intent_aliases": agentIntentAliasDocs(),
 	}
 
-	commands := robotCommandDocs()
+	commands := robotCommandDocsForAgentOutput()
 
 	examples := []map[string]string{
 		{"description": "Get top 3 picks for immediate work", "command": "bv robot-triage --json | jq '.triage.quick_ref.top_picks[:3]'"},

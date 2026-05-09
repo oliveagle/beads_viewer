@@ -531,20 +531,28 @@ func TestRobotCapabilitiesManifest(t *testing.T) {
 		name, _ := command["name"].(string)
 		seen[name] = command
 	}
-	for _, name := range []string{"robot-triage", "robot-capabilities", "robot-schema", "robot-related", "robot-file-hotspots"} {
+	for name := range primaryRobotFlagNames() {
 		if seen[name] == nil {
 			t.Fatalf("capabilities missing command %q", name)
 		}
 	}
+	requireString(t, seen["robot-help"]["preferred_invocation"].(string), "bv robot-help --json")
 	requireString(t, seen["robot-triage"]["preferred_invocation"].(string), "bv robot-triage --json")
 	requireContainsString(t, seen["robot-triage"]["accepted_invocations"].([]string), "bv --robot-triage --format json")
 	requireContainsString(t, seen["robot-related"]["accepted_invocations"].([]string), "bv robot-related ISSUE_ID --json")
+	if seen["robot-related"]["needs_git"] != true {
+		t.Fatalf("robot-related needs_git = %v, want true", seen["robot-related"]["needs_git"])
+	}
+	if seen["robot-correlation-stats"]["needs_git"] != false {
+		t.Fatalf("robot-correlation-stats needs_git = %v, want false", seen["robot-correlation-stats"]["needs_git"])
+	}
+	requireString(t, seen["robot-confirm-correlation"]["preferred_invocation"].(string), "bv robot-confirm-correlation deadbeef:ISSUE_ID --correlation-by agent --json")
 	requireString(t, seen["robot-search"]["preferred_invocation"].(string), `bv robot-search "login oauth" --json`)
 	requireContainsString(t, seen["robot-search"]["accepted_invocations"].([]string), `bv --search "login oauth" --robot-search --format json`)
 	requireString(t, seen["robot-diff"]["preferred_invocation"].(string), "bv robot-diff HEAD~1 --json")
 	requireContainsString(t, seen["robot-diff"]["accepted_invocations"].([]string), "bv --robot-diff --diff-since HEAD~1 --format json")
 	for _, command := range commands {
-		for _, key := range []string{"preferred_invocation"} {
+		for _, key := range []string{"flag", "preferred_invocation"} {
 			value, _ := command[key].(string)
 			if strings.ContainsAny(value, "<>") {
 				t.Fatalf("%s for %s contains shell redirection placeholder: %q", key, command["name"], value)

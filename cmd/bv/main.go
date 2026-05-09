@@ -220,10 +220,88 @@ func validateModifierFlags(flags *flag.FlagSet, rules []modifierFlagRule) error 
 			continue
 		}
 
-		return fmt.Errorf("--%s requires %s", rule.modifier, formatRequiredFlags(rule.requires))
+		return fmt.Errorf("--%s requires %s%s", rule.modifier, formatRequiredFlags(rule.requires), formatModifierRecoveryExamples(rule.modifier))
 	}
 
 	return nil
+}
+
+func formatModifierRecoveryExamples(modifier string) string {
+	examples := modifierRecoveryExamples(modifier)
+	if len(examples) == 0 {
+		return ""
+	}
+	if len(examples) == 1 {
+		return "\nTry: `" + examples[0] + "`."
+	}
+
+	var b strings.Builder
+	b.WriteString("\nTry one of:")
+	for _, example := range examples {
+		b.WriteString("\n  `")
+		b.WriteString(example)
+		b.WriteString("`")
+	}
+	return b.String()
+}
+
+func modifierRecoveryExamples(modifier string) []string {
+	switch modifier {
+	case "robot-search", "search-limit", "search-mode", "search-preset", "search-weights":
+		return []string{
+			`bv robot-search "login oauth" --json`,
+			`bv --search "login oauth" --robot-search --format json`,
+		}
+	case "robot-diff":
+		return []string{
+			"bv robot-diff HEAD~1 --json",
+			"bv --robot-diff --diff-since HEAD~1 --format json",
+		}
+	case "schema-command":
+		return []string{"bv robot-schema triage --json"}
+	case "graph-format", "graph-depth":
+		return []string{"bv robot-graph mermaid --json"}
+	case "graph-root":
+		return []string{"bv robot-graph json --graph-root A --json"}
+	case "severity", "alert-type", "alert-label":
+		return []string{"bv robot-alerts --severity critical --json"}
+	case "robot-drift":
+		return []string{"bv --check-drift --robot-drift --format json"}
+	case "history-since", "history-limit", "min-confidence":
+		return []string{"bv robot-history --history-since \"30 days ago\" --json"}
+	case "correlation-by", "correlation-reason":
+		return []string{"bv robot-confirm-correlation deadbeef:A --correlation-by agent --json"}
+	case "orphans-min-score":
+		return []string{"bv robot-orphans --orphans-min-score 30 --json"}
+	case "file-beads-limit":
+		return []string{"bv robot-file-beads README.md --file-beads-limit 10 --json"}
+	case "hotspots-limit":
+		return []string{"bv robot-file-hotspots --hotspots-limit 10 --json"}
+	case "relations-threshold", "relations-limit":
+		return []string{"bv robot-file-relations README.md --relations-limit 10 --json"}
+	case "related-min-relevance", "related-max-results", "related-include-closed":
+		return []string{"bv robot-related A --related-max-results 5 --json"}
+	case "network-depth":
+		return []string{"bv robot-impact-network A --network-depth 2 --json"}
+	case "forecast-label", "forecast-sprint", "forecast-agents":
+		return []string{"bv robot-forecast all --forecast-agents 3 --json"}
+	case "agents", "capacity-label":
+		return []string{"bv robot-capacity --agents 3 --json"}
+	case "robot-by-label", "robot-by-assignee":
+		return []string{"bv robot-priority --robot-by-label backend --json"}
+	case "script-limit", "script-format":
+		return []string{"bv --emit-script --script-limit 5"}
+	case "pages-title", "pages-include-closed", "pages-include-history":
+		return []string{`bv --export-pages ./bv-pages --pages-title "Nightly Build"`}
+	case "no-live-reload":
+		return []string{"bv --preview-pages ./bv-pages --no-live-reload"}
+	case "watch-export":
+		return []string{"bv --export-pages ./bv-pages --watch-export"}
+	case "debug-width", "debug-height":
+		return []string{"bv --debug-render triage --debug-width 120 --debug-height 40"}
+	default:
+		return nil
+	}
 }
 
 func validateEnumFlags(flags *flag.FlagSet, rules []enumFlagRule) error {

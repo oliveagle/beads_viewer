@@ -548,39 +548,77 @@ func TestModifierFlagValidation(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	tests := []struct {
-		name        string
-		args        []string
-		wantMessage string
+		name         string
+		args         []string
+		wantMessages []string
 	}{
 		{
-			name:        "robot diff requires diff since",
-			args:        []string{"--robot-diff"},
-			wantMessage: "Error: --robot-diff requires --diff-since",
+			name: "robot diff requires diff since",
+			args: []string{"--robot-diff"},
+			wantMessages: []string{
+				"Error: --robot-diff requires --diff-since",
+				"Try one of:",
+				"`bv robot-diff HEAD~1 --json`",
+				"`bv --robot-diff --diff-since HEAD~1 --format json`",
+			},
 		},
 		{
-			name:        "robot drift requires check drift",
-			args:        []string{"--robot-drift"},
-			wantMessage: "Error: --robot-drift requires --check-drift",
+			name: "robot search requires search query",
+			args: []string{"robot-search", "--json"},
+			wantMessages: []string{
+				"Error: --robot-search requires --search",
+				"Try one of:",
+				"`bv robot-search \"login oauth\" --json`",
+				"`bv --search \"login oauth\" --robot-search --format json`",
+			},
 		},
 		{
-			name:        "schema command requires robot schema",
-			args:        []string{"--schema-command", "robot-triage"},
-			wantMessage: "Error: --schema-command requires --robot-schema",
+			name: "graph format requires graph command",
+			args: []string{"--graph-format", "mermaid"},
+			wantMessages: []string{
+				"Error: --graph-format requires --robot-graph",
+				"Try: `bv robot-graph mermaid --json`.",
+			},
 		},
 		{
-			name:        "watch export requires export pages",
-			args:        []string{"--watch-export"},
-			wantMessage: "Error: --watch-export requires --export-pages",
+			name: "robot drift requires check drift",
+			args: []string{"--robot-drift"},
+			wantMessages: []string{
+				"Error: --robot-drift requires --check-drift",
+				"Try: `bv --check-drift --robot-drift --format json`.",
+			},
 		},
 		{
-			name:        "history since requires history mode",
-			args:        []string{"--history-since", "30 days ago"},
-			wantMessage: "Error: --history-since requires one of --robot-history or --bead-history",
+			name: "schema command requires robot schema",
+			args: []string{"--schema-command", "robot-triage"},
+			wantMessages: []string{
+				"Error: --schema-command requires --robot-schema",
+				"Try: `bv robot-schema triage --json`.",
+			},
 		},
 		{
-			name:        "capacity agents requires robot capacity",
-			args:        []string{"--agents", "3"},
-			wantMessage: "Error: --agents requires --robot-capacity",
+			name: "watch export requires export pages",
+			args: []string{"--watch-export"},
+			wantMessages: []string{
+				"Error: --watch-export requires --export-pages",
+				"Try: `bv --export-pages ./bv-pages --watch-export`.",
+			},
+		},
+		{
+			name: "history since requires history mode",
+			args: []string{"--history-since", "30 days ago"},
+			wantMessages: []string{
+				"Error: --history-since requires one of --robot-history or --bead-history",
+				"Try: `bv robot-history --history-since \"30 days ago\" --json`.",
+			},
+		},
+		{
+			name: "capacity agents requires robot capacity",
+			args: []string{"--agents", "3"},
+			wantMessages: []string{
+				"Error: --agents requires --robot-capacity",
+				"Try: `bv robot-capacity --agents 3 --json`.",
+			},
 		},
 	}
 
@@ -601,8 +639,10 @@ func TestModifierFlagValidation(t *testing.T) {
 			if stdout != "" {
 				t.Fatalf("expected empty stdout for %v, got:\n%s", tt.args, stdout)
 			}
-			if !strings.Contains(stderr, tt.wantMessage) {
-				t.Fatalf("stderr missing %q\nfull stderr:\n%s", tt.wantMessage, stderr)
+			for _, want := range tt.wantMessages {
+				if !strings.Contains(stderr, want) {
+					t.Fatalf("stderr missing %q\nfull stderr:\n%s", want, stderr)
+				}
 			}
 		})
 	}

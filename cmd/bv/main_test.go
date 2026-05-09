@@ -206,6 +206,31 @@ func TestUnknownFlagErrorSuggestsNearestFlag(t *testing.T) {
 	}
 }
 
+func TestUnknownCommandErrorSuggestsNearestCommand(t *testing.T) {
+	exe := buildTestBinary(t)
+
+	stdout, stderr, err := runCommandWithTimeout(t, t.TempDir(), exe, "robot-triag", "--json")
+	if err == nil {
+		t.Fatalf("expected unknown command to fail\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
+	}
+	if stdout != "" {
+		t.Fatalf("expected empty stdout for unknown command, got:\n%s", stdout)
+	}
+	for _, want := range []string{
+		`unknown command "robot-triag" for "bv"`,
+		"Did you mean `bv robot-triage --json`?",
+		"Canonical flag form: `bv --robot-triage --format json`.",
+		"bv robot-capabilities --json",
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr missing %q\nstderr:\n%s", want, stderr)
+		}
+	}
+	if strings.Count(stderr, `unknown command "robot-triag"`) != 1 {
+		t.Fatalf("expected unknown command error once, got:\n%s", stderr)
+	}
+}
+
 func TestMissingFlagArgumentErrorSuggestsValueShape(t *testing.T) {
 	exe := buildTestBinary(t)
 

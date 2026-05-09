@@ -862,6 +862,67 @@ func hasNonRobotPrimaryArg(args []string) bool {
 	return false
 }
 
+func agentIntentCommandNames() []string {
+	names := []string{
+		"triage",
+		"recommend",
+		"recommendations",
+		"next",
+		"pick",
+		"plan",
+		"insights",
+		"insight",
+		"analysis",
+		"analyze",
+		"priority",
+		"priorities",
+		"alerts",
+		"suggest",
+		"suggestions",
+		"recipes",
+		"metrics",
+		"capabilities",
+		"capability",
+		"manifest",
+		"docs",
+		"doc",
+		"schema",
+		"schemas",
+		"search",
+		"find",
+		"graph",
+		"diff",
+		"changes",
+		"history",
+		"labels",
+		"label-health",
+		"label-flow",
+		"label-attention",
+		"hotspots",
+		"file-hotspots",
+		"file-beads",
+		"file-relations",
+		"impact",
+		"related",
+		"blockers",
+		"blocker-chain",
+		"impact-network",
+		"causality",
+		"sprints",
+		"sprint-list",
+		"sprint",
+		"sprint-show",
+		"forecast",
+		"capacity",
+		"burndown",
+	}
+	for name := range primaryRobotFlagNames() {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 func primaryRobotFlagNames() map[string]bool {
 	return map[string]bool{
 		"robot-help":                true,
@@ -945,6 +1006,27 @@ func stabilizeRobotTriageForPinnedClock(triage *analysis.TriageResult) {
 	}
 }
 
+func enrichCommandParseError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	name, ok := unknownCommandName(err.Error())
+	if !ok {
+		return err
+	}
+
+	suggestion := suggestClosest(name, agentIntentCommandNames())
+	if suggestion == "" {
+		return err
+	}
+
+	if strings.HasPrefix(suggestion, "robot-") {
+		return fmt.Errorf("%w\nDid you mean `bv %s --json`?\nCanonical flag form: `bv --%s --format json`.\nRun `bv robot-capabilities --json` for the machine-readable command inventory.", err, suggestion, suggestion)
+	}
+	return fmt.Errorf("%w\nDid you mean `bv %s --json`?\nRun `bv robot-capabilities --json` for the machine-readable command inventory.", err, suggestion)
+}
+
 func enrichFlagParseError(err error, flags *flag.FlagSet) error {
 	if err != nil {
 		if name, ok := missingFlagArgumentName(err.Error()); ok {
@@ -970,6 +1052,21 @@ func enrichFlagParseError(err error, flags *flag.FlagSet) error {
 	}
 
 	return nil
+}
+
+func unknownCommandName(message string) (string, bool) {
+	const prefix = "unknown command \""
+	idx := strings.Index(message, prefix)
+	if idx < 0 {
+		return "", false
+	}
+
+	rest := message[idx+len(prefix):]
+	end := strings.IndexRune(rest, '"')
+	if end <= 0 {
+		return "", false
+	}
+	return strings.TrimSpace(rest[:end]), true
 }
 
 func missingFlagArgumentName(message string) (string, bool) {
@@ -5097,7 +5194,7 @@ func main() {
 	rootCmd.SetArgs(rewriteSingleDashLongFlags(normalizedArgs, rootCmd.Flags()))
 
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, enrichCommandParseError(err))
 		os.Exit(1)
 	}
 }

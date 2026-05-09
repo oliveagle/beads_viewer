@@ -8267,13 +8267,83 @@ func generateRobotCapabilities() map[string]interface{} {
 }
 
 func preferredRobotInvocation(commandName string, doc robotCommandDoc) string {
+	if invocation := preferredRobotInvocationOverride(commandName); invocation != "" {
+		return invocation
+	}
 	return "bv " + commandName + robotCommandArgumentSuffix(doc) + " --json"
 }
 
 func acceptedRobotInvocations(commandName string, doc robotCommandDoc) []string {
+	if invocations := acceptedRobotInvocationOverrides(commandName); len(invocations) > 0 {
+		return invocations
+	}
 	return []string{
 		"bv " + doc.Flag + " --format json",
 		preferredRobotInvocation(commandName, doc),
+	}
+}
+
+func preferredRobotInvocationOverride(commandName string) string {
+	switch commandName {
+	case "robot-search":
+		return `bv robot-search "login oauth" --json`
+	case "robot-diff":
+		return "bv robot-diff HEAD~1 --json"
+	case "robot-history":
+		return "bv robot-history --history-limit 20 --json"
+	case "robot-alerts":
+		return "bv robot-alerts --severity critical --json"
+	case "robot-suggest":
+		return "bv robot-suggest --suggest-type duplicate --json"
+	case "robot-label-attention":
+		return "bv robot-label-attention --attention-limit 5 --json"
+	case "robot-graph":
+		return "bv robot-graph mermaid --json"
+	case "robot-orphans":
+		return "bv robot-orphans --orphans-min-score 30 --json"
+	case "robot-file-beads":
+		return "bv robot-file-beads README.md --json"
+	case "robot-file-relations":
+		return "bv robot-file-relations README.md --json"
+	case "robot-related":
+		return "bv robot-related <id> --json"
+	case "robot-blocker-chain":
+		return "bv robot-blocker-chain <id> --json"
+	case "robot-causality":
+		return "bv robot-causality <id> --json"
+	case "robot-forecast":
+		return "bv robot-forecast all --json"
+	case "robot-burndown":
+		return "bv robot-burndown current --json"
+	case "robot-drift":
+		return "bv --check-drift --robot-drift --format json"
+	case "robot-impact":
+		return "bv robot-impact README.md --json"
+	default:
+		return ""
+	}
+}
+
+func acceptedRobotInvocationOverrides(commandName string) []string {
+	switch commandName {
+	case "robot-search":
+		return []string{
+			`bv --search "login oauth" --robot-search --format json`,
+			`bv robot-search "login oauth" --json`,
+			`bv search "login oauth" --json`,
+		}
+	case "robot-diff":
+		return []string{
+			"bv --robot-diff --diff-since HEAD~1 --format json",
+			"bv robot-diff HEAD~1 --json",
+		}
+	case "robot-drift":
+		return []string{
+			"bv --check-drift --robot-drift --format json",
+			"bv robot-drift --json",
+		}
+	default:
+		return nil
 	}
 }
 

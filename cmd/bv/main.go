@@ -8805,13 +8805,33 @@ func generateRobotSchemas() RobotSchemas {
 			"description": "Dependency graph in JSON/DOT/Mermaid format",
 			"type":        "object",
 			"properties": map[string]interface{}{
-				"generated_at": map[string]interface{}{"type": "string", "format": "date-time"},
-				"data_hash":    map[string]interface{}{"type": "string"},
-				"format":       map[string]interface{}{"type": "string", "enum": []string{"json", "dot", "mermaid"}},
-				"nodes":        map[string]interface{}{"type": "array"},
-				"edges":        map[string]interface{}{"type": "array"},
-				"stats":        map[string]interface{}{"type": "object"},
+				"format": map[string]interface{}{"type": "string", "enum": []string{"json", "dot", "mermaid"}},
+				"graph":  map[string]interface{}{"type": "string"},
+				"nodes":  map[string]interface{}{"type": "integer"},
+				"edges":  map[string]interface{}{"type": "integer"},
+				"filters_applied": map[string]interface{}{
+					"type":                 "object",
+					"additionalProperties": map[string]interface{}{"type": "string"},
+				},
+				"explanation": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"what":          map[string]interface{}{"type": "string"},
+						"how_to_render": map[string]interface{}{"type": "string"},
+						"when_to_use":   map[string]interface{}{"type": "string"},
+					},
+					"required": []string{"what", "when_to_use"},
+				},
+				"data_hash": map[string]interface{}{"type": "string"},
+				"adjacency": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"nodes": map[string]interface{}{"type": "array"},
+						"edges": map[string]interface{}{"type": "array"},
+					},
+				},
 			},
+			"required": []string{"format", "nodes", "edges", "explanation"},
 		},
 		"robot-diff": {
 			"$schema":     "https://json-schema.org/draft/2020-12/schema",

@@ -828,6 +828,39 @@ func TestRobotBurndownSchemaMatchesHandlerEnvelope(t *testing.T) {
 	}
 }
 
+func TestRobotGraphSchemaMatchesExportResult(t *testing.T) {
+	schemas := generateRobotSchemas()
+	schema := schemas.Commands["robot-graph"]
+	properties, ok := schema["properties"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("robot-graph properties has unexpected type %T", schema["properties"])
+	}
+	for _, name := range []string{"format", "graph", "nodes", "edges", "filters_applied", "explanation", "data_hash", "adjacency"} {
+		if properties[name] == nil {
+			t.Fatalf("robot-graph schema missing top-level property %q", name)
+		}
+	}
+	for _, stale := range []string{"generated_at", "stats"} {
+		if properties[stale] != nil {
+			t.Fatalf("robot-graph schema still exposes stale top-level property %q", stale)
+		}
+	}
+
+	explanation, ok := properties["explanation"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("explanation property has unexpected type %T", properties["explanation"])
+	}
+	explanationProperties, ok := explanation["properties"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("explanation nested properties has unexpected type %T", explanation["properties"])
+	}
+	for _, name := range []string{"what", "how_to_render", "when_to_use"} {
+		if explanationProperties[name] == nil {
+			t.Fatalf("robot-graph explanation schema missing %q", name)
+		}
+	}
+}
+
 func TestModifierFlagValidation(t *testing.T) {
 	exe := buildTestBinary(t)
 	tmpDir := t.TempDir()

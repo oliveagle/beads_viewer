@@ -1504,6 +1504,9 @@ func main() {
 		RecipeLoader: func() *recipe.Loader {
 			return recipeLoader
 		},
+		StructuredOutput: func() bool {
+			return flag.CommandLine.Changed("format")
+		},
 	})
 	phaseTwoRobotRegistry := newRobotRegistry()
 	registerPhaseTwoRobotHandlers(&phaseTwoRobotRegistry, phaseTwoRobotHandlerConfig{

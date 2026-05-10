@@ -477,6 +477,8 @@ func TestAgentIntentAliasesOutputJSON(t *testing.T) {
 	exe := buildTestBinary(t)
 	for _, args := range [][]string{
 		{"--json"},
+		{"--robot-help", "--json"},
+		{"--robot-help", "--format", "json"},
 		{"robot-help", "--json"},
 		{"robot-triage", "--json"},
 		{"triage", "--json"},

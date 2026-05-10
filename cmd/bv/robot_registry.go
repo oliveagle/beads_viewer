@@ -102,6 +102,7 @@ type phaseOneRobotHandlerConfig struct {
 	VersionFlag           *bool
 	SchemaCommand         *string
 	RecipeLoader          func() *recipe.Loader
+	StructuredOutput      func() bool
 }
 
 type phaseTwoRobotHandlerConfig struct {
@@ -441,6 +442,12 @@ func registerPhaseOneRobotHandlers(registry *RobotRegistry, cfg phaseOneRobotHan
 		FlagPtr:     cfg.RobotHelpFlag,
 		Description: "Show AI agent help",
 		Handler: func(ctx RobotContext) error {
+			if cfg.StructuredOutput != nil && cfg.StructuredOutput() {
+				if err := ctx.EncoderOrDefault().Encode(generateRobotDocs("guide")); err != nil {
+					return fmt.Errorf("encoding robot help: %w", err)
+				}
+				return nil
+			}
 			if err := writeRobotHelp(ctx.StdoutOrDefault()); err != nil {
 				return fmt.Errorf("writing robot help: %w", err)
 			}

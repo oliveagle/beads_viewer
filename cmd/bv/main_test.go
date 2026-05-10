@@ -785,6 +785,49 @@ func TestRobotForecastSchemaMatchesHandlerEnvelope(t *testing.T) {
 	}
 }
 
+func TestRobotBurndownSchemaMatchesHandlerEnvelope(t *testing.T) {
+	schemas := generateRobotSchemas()
+	schema := schemas.Commands["robot-burndown"]
+	properties, ok := schema["properties"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("robot-burndown properties has unexpected type %T", schema["properties"])
+	}
+	for _, name := range []string{
+		"output_format", "version", "sprint_name", "start_date", "end_date",
+		"total_days", "elapsed_days", "remaining_days",
+		"total_issues", "completed_issues", "remaining_issues",
+		"ideal_burn_rate", "actual_burn_rate", "projected_complete",
+		"on_track", "daily_points", "ideal_line",
+	} {
+		if properties[name] == nil {
+			t.Fatalf("robot-burndown schema missing top-level property %q", name)
+		}
+	}
+	for _, stale := range []string{"burndown", "at_risk"} {
+		if properties[stale] != nil {
+			t.Fatalf("robot-burndown schema still exposes stale top-level property %q", stale)
+		}
+	}
+
+	dailyPoints, ok := properties["daily_points"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("daily_points property has unexpected type %T", properties["daily_points"])
+	}
+	items, ok := dailyPoints["items"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("daily_points items has unexpected type %T", dailyPoints["items"])
+	}
+	pointProperties, ok := items["properties"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("daily_points item properties has unexpected type %T", items["properties"])
+	}
+	for _, name := range []string{"date", "remaining", "completed"} {
+		if pointProperties[name] == nil {
+			t.Fatalf("robot-burndown point schema missing %q", name)
+		}
+	}
+}
+
 func TestModifierFlagValidation(t *testing.T) {
 	exe := buildTestBinary(t)
 	tmpDir := t.TempDir()

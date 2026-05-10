@@ -8873,15 +8873,55 @@ func generateRobotSchemas() RobotSchemas {
 		"robot-burndown": {
 			"$schema":     "https://json-schema.org/draft/2020-12/schema",
 			"title":       "Robot Burndown Output",
-			"description": "Sprint burndown data with scope changes and at-risk items",
+			"description": "Sprint burndown data with issue counts, burn rates, daily points, and optional scope changes",
 			"type":        "object",
 			"properties": map[string]interface{}{
-				"generated_at":  map[string]interface{}{"type": "string", "format": "date-time"},
-				"data_hash":     map[string]interface{}{"type": "string"},
-				"sprint_id":     map[string]interface{}{"type": "string"},
-				"burndown":      map[string]interface{}{"type": "array"},
-				"scope_changes": map[string]interface{}{"type": "array"},
-				"at_risk":       map[string]interface{}{"type": "array"},
+				"generated_at":       map[string]interface{}{"type": "string", "format": "date-time"},
+				"data_hash":          map[string]interface{}{"type": "string"},
+				"output_format":      map[string]interface{}{"type": "string", "enum": []string{"json", "toon"}},
+				"version":            map[string]interface{}{"type": "string"},
+				"sprint_id":          map[string]interface{}{"type": "string"},
+				"sprint_name":        map[string]interface{}{"type": "string"},
+				"start_date":         map[string]interface{}{"type": "string", "format": "date-time"},
+				"end_date":           map[string]interface{}{"type": "string", "format": "date-time"},
+				"total_days":         map[string]interface{}{"type": "integer"},
+				"elapsed_days":       map[string]interface{}{"type": "integer"},
+				"remaining_days":     map[string]interface{}{"type": "integer"},
+				"total_issues":       map[string]interface{}{"type": "integer"},
+				"completed_issues":   map[string]interface{}{"type": "integer"},
+				"remaining_issues":   map[string]interface{}{"type": "integer"},
+				"ideal_burn_rate":    map[string]interface{}{"type": "number"},
+				"actual_burn_rate":   map[string]interface{}{"type": "number"},
+				"projected_complete": map[string]interface{}{"type": "string", "format": "date-time"},
+				"on_track":           map[string]interface{}{"type": "boolean"},
+				"daily_points": map[string]interface{}{
+					"type":  []string{"array", "null"},
+					"items": burndownPointSchema(),
+				},
+				"ideal_line": map[string]interface{}{
+					"type":  []string{"array", "null"},
+					"items": burndownPointSchema(),
+				},
+				"scope_changes": map[string]interface{}{
+					"type": []string{"array", "null"},
+					"items": map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"date":        map[string]interface{}{"type": "string", "format": "date-time"},
+							"issue_id":    map[string]interface{}{"type": "string"},
+							"issue_title": map[string]interface{}{"type": "string"},
+							"action":      map[string]interface{}{"type": "string", "enum": []string{"added", "removed"}},
+						},
+					},
+				},
+			},
+			"required": []string{
+				"generated_at", "data_hash", "output_format", "version",
+				"sprint_id", "sprint_name", "start_date", "end_date",
+				"total_days", "elapsed_days", "remaining_days",
+				"total_issues", "completed_issues", "remaining_issues",
+				"ideal_burn_rate", "actual_burn_rate", "on_track",
+				"daily_points", "ideal_line",
 			},
 		},
 		"robot-forecast": {
@@ -8926,6 +8966,18 @@ func generateRobotSchemas() RobotSchemas {
 		GeneratedAt:   now,
 		Envelope:      envelope,
 		Commands:      commands,
+	}
+}
+
+func burndownPointSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"date":      map[string]interface{}{"type": "string", "format": "date-time"},
+			"remaining": map[string]interface{}{"type": "integer"},
+			"completed": map[string]interface{}{"type": "integer"},
+		},
+		"required": []string{"date", "remaining", "completed"},
 	}
 }
 

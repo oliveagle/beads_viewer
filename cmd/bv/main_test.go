@@ -998,6 +998,34 @@ func TestRobotPrioritySchemaMatchesHandlerOutput(t *testing.T) {
 	}
 }
 
+func TestRobotAlertsSchemaMatchesHandlerOutput(t *testing.T) {
+	schemas := generateRobotSchemas()
+	properties := requireRobotSchemaProperties(t, schemas, "robot-alerts")
+	for _, name := range []string{"output_format", "version", "alerts", "summary", "usage_hints"} {
+		if properties[name] == nil {
+			t.Fatalf("robot-alerts schema missing top-level property %q", name)
+		}
+	}
+
+	alertsProp, ok := properties["alerts"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("robot-alerts alerts has unexpected type %T", properties["alerts"])
+	}
+	alertItemProps := requireNestedSchemaProperties(t, alertsProp["items"], "robot-alerts alert item")
+	for _, name := range []string{"type", "severity", "message", "baseline_value", "current_value", "delta", "detected_at"} {
+		if alertItemProps[name] == nil {
+			t.Fatalf("robot-alerts alert schema missing %q", name)
+		}
+	}
+
+	summary := requireNestedSchemaProperties(t, properties["summary"], "robot-alerts summary")
+	for _, name := range []string{"total", "critical", "warning", "info"} {
+		if summary[name] == nil {
+			t.Fatalf("robot-alerts summary schema missing %q", name)
+		}
+	}
+}
+
 func requireRobotSchemaProperties(t *testing.T, schemas RobotSchemas, command string) map[string]interface{} {
 	t.Helper()
 	schema := schemas.Commands[command]

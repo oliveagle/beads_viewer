@@ -8899,11 +8899,18 @@ func generateRobotSchemas() RobotSchemas {
 			"description": "Stale issues, blocking cascades, priority mismatches",
 			"type":        "object",
 			"properties": map[string]interface{}{
-				"generated_at": map[string]interface{}{"type": "string", "format": "date-time"},
-				"data_hash":    map[string]interface{}{"type": "string"},
-				"alerts":       map[string]interface{}{"type": "array"},
-				"summary":      map[string]interface{}{"type": "object"},
+				"generated_at":  map[string]interface{}{"type": "string", "format": "date-time"},
+				"data_hash":     map[string]interface{}{"type": "string"},
+				"output_format": map[string]interface{}{"type": "string", "enum": []string{"json", "toon"}},
+				"version":       map[string]interface{}{"type": "string"},
+				"alerts": map[string]interface{}{
+					"type":  "array",
+					"items": alertSchema(),
+				},
+				"summary":     alertSummarySchema(),
+				"usage_hints": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
 			},
+			"required": []string{"generated_at", "data_hash", "output_format", "version", "alerts", "summary", "usage_hints"},
 		},
 		"robot-suggest": {
 			"$schema":     "https://json-schema.org/draft/2020-12/schema",
@@ -9197,6 +9204,40 @@ func labelAttentionItemSchema() map[string]interface{} {
 			"velocity_factor":  map[string]interface{}{"type": "number"},
 		},
 		"required": []string{"rank", "label", "attention_score", "normalized_score", "reason", "open_count", "blocked_count", "stale_count", "pagerank_sum", "velocity_factor"},
+	}
+}
+
+func alertSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"type":                    map[string]interface{}{"type": "string"},
+			"severity":                map[string]interface{}{"type": "string", "enum": []string{"critical", "warning", "info"}},
+			"message":                 map[string]interface{}{"type": "string"},
+			"baseline_value":          map[string]interface{}{"type": "number"},
+			"current_value":           map[string]interface{}{"type": "number"},
+			"delta":                   map[string]interface{}{"type": "number"},
+			"details":                 map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+			"issue_id":                map[string]interface{}{"type": "string"},
+			"label":                   map[string]interface{}{"type": "string"},
+			"detected_at":             map[string]interface{}{"type": "string", "format": "date-time"},
+			"unblocks_count":          map[string]interface{}{"type": "integer"},
+			"downstream_priority_sum": map[string]interface{}{"type": "integer"},
+		},
+		"required": []string{"type", "severity", "message"},
+	}
+}
+
+func alertSummarySchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"total":    map[string]interface{}{"type": "integer"},
+			"critical": map[string]interface{}{"type": "integer"},
+			"warning":  map[string]interface{}{"type": "integer"},
+			"info":     map[string]interface{}{"type": "integer"},
+		},
+		"required": []string{"total", "critical", "warning", "info"},
 	}
 }
 

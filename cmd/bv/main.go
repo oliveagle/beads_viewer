@@ -8652,6 +8652,7 @@ func generateRobotSchemas() RobotSchemas {
 
 	commands := map[string]map[string]interface{}{
 		"robot-capabilities": robotCapabilitiesSchema(),
+		"robot-schema":       robotSchemaOutputSchema(),
 		"robot-triage": {
 			"$schema":     "https://json-schema.org/draft/2020-12/schema",
 			"title":       "Robot Triage Output",
@@ -9474,6 +9475,32 @@ func robotCapabilitiesSchema() map[string]interface{} {
 			"stream_contract":       map[string]interface{}{"type": "object", "additionalProperties": map[string]interface{}{"type": "string"}},
 		},
 		"required": []string{"generated_at", "tool", "version", "contract_version", "commands", "environment_variables", "exit_codes"},
+	}
+}
+
+func robotSchemaOutputSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"$schema":     "https://json-schema.org/draft/2020-12/schema",
+		"title":       "Robot Schema Output",
+		"description": "JSON Schema definitions for all robot commands, or one command when --schema-command is set",
+		"type":        "object",
+		"properties": map[string]interface{}{
+			"schema_version": map[string]interface{}{"type": "string"},
+			"generated_at":   map[string]interface{}{"type": "string", "format": "date-time"},
+			"envelope":       map[string]interface{}{"type": "object"},
+			"commands": map[string]interface{}{
+				"type":                 "object",
+				"additionalProperties": map[string]interface{}{"type": "object"},
+			},
+			"command": map[string]interface{}{"type": "string"},
+			"schema":  map[string]interface{}{"type": "object"},
+		},
+		"required": []string{"schema_version", "generated_at"},
+		"oneOf": []map[string]interface{}{
+			{"required": []string{"schema_version", "generated_at", "envelope", "commands"}},
+			{"required": []string{"schema_version", "generated_at", "command", "schema"}},
+		},
+		"additionalProperties": false,
 	}
 }
 

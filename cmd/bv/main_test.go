@@ -721,6 +721,24 @@ func TestRobotCapabilitiesSchemaDocumentsCommandMetadata(t *testing.T) {
 	}
 }
 
+func TestRobotSchemaCommandSchemaMatchesHandlerOutputs(t *testing.T) {
+	schemas := generateRobotSchemas()
+	properties := requireRobotSchemaProperties(t, schemas, "robot-schema")
+	for _, name := range []string{"schema_version", "generated_at", "envelope", "commands", "command", "schema"} {
+		if properties[name] == nil {
+			t.Fatalf("robot-schema schema missing property %q", name)
+		}
+	}
+	for _, stale := range []string{"output_format", "version"} {
+		if properties[stale] != nil {
+			t.Fatalf("robot-schema schema still exposes stale generic property %q", stale)
+		}
+	}
+	if schemas.Commands["robot-schema"]["oneOf"] == nil {
+		t.Fatalf("robot-schema schema should distinguish full and single-command outputs")
+	}
+}
+
 func TestRobotDiffSchemaMatchesHandlerEnvelope(t *testing.T) {
 	schemas := generateRobotSchemas()
 	schema := schemas.Commands["robot-diff"]

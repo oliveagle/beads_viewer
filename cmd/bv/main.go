@@ -8886,9 +8886,18 @@ func generateRobotSchemas() RobotSchemas {
 			"properties": map[string]interface{}{
 				"generated_at": map[string]interface{}{"type": "string", "format": "date-time"},
 				"data_hash":    map[string]interface{}{"type": "string"},
-				"suggestions":  map[string]interface{}{"type": "array"},
-				"counts":       map[string]interface{}{"type": "object"},
+				"filters": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"type":           map[string]interface{}{"type": "string"},
+						"min_confidence": map[string]interface{}{"type": "number"},
+						"bead_id":        map[string]interface{}{"type": "string"},
+					},
+				},
+				"suggestions": suggestionSetSchema(),
+				"usage_hints": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
 			},
+			"required": []string{"generated_at", "data_hash", "filters", "suggestions", "usage_hints"},
 		},
 		"robot-burndown": {
 			"$schema":     "https://json-schema.org/draft/2020-12/schema",
@@ -8998,6 +9007,54 @@ func burndownPointSchema() map[string]interface{} {
 			"completed": map[string]interface{}{"type": "integer"},
 		},
 		"required": []string{"date", "remaining", "completed"},
+	}
+}
+
+func suggestionSetSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"suggestions": map[string]interface{}{
+				"type":  "array",
+				"items": suggestionSchema(),
+			},
+			"generated_at": map[string]interface{}{"type": "string", "format": "date-time"},
+			"data_hash":    map[string]interface{}{"type": "string"},
+			"stats":        suggestionStatsSchema(),
+		},
+		"required": []string{"suggestions", "generated_at", "stats"},
+	}
+}
+
+func suggestionSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"type":           map[string]interface{}{"type": "string"},
+			"target_bead":    map[string]interface{}{"type": "string"},
+			"related_bead":   map[string]interface{}{"type": "string"},
+			"summary":        map[string]interface{}{"type": "string"},
+			"reason":         map[string]interface{}{"type": "string"},
+			"confidence":     map[string]interface{}{"type": "number"},
+			"action_command": map[string]interface{}{"type": "string"},
+			"generated_at":   map[string]interface{}{"type": "string", "format": "date-time"},
+			"metadata":       map[string]interface{}{"type": "object", "additionalProperties": true},
+		},
+		"required": []string{"type", "target_bead", "summary", "reason", "confidence", "generated_at"},
+	}
+}
+
+func suggestionStatsSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"total":                 map[string]interface{}{"type": "integer"},
+			"by_type":               map[string]interface{}{"type": "object", "additionalProperties": map[string]interface{}{"type": "integer"}},
+			"by_confidence":         map[string]interface{}{"type": "object", "additionalProperties": map[string]interface{}{"type": "integer"}},
+			"high_confidence_count": map[string]interface{}{"type": "integer"},
+			"actionable_count":      map[string]interface{}{"type": "integer"},
+		},
+		"required": []string{"total", "by_type", "by_confidence", "high_confidence_count", "actionable_count"},
 	}
 }
 

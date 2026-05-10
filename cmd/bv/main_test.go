@@ -861,6 +861,54 @@ func TestRobotGraphSchemaMatchesExportResult(t *testing.T) {
 	}
 }
 
+func TestRobotSuggestSchemaMatchesOutputShape(t *testing.T) {
+	schemas := generateRobotSchemas()
+	schema := schemas.Commands["robot-suggest"]
+	properties, ok := schema["properties"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("robot-suggest properties has unexpected type %T", schema["properties"])
+	}
+	for _, name := range []string{"filters", "suggestions", "usage_hints"} {
+		if properties[name] == nil {
+			t.Fatalf("robot-suggest schema missing top-level property %q", name)
+		}
+	}
+	if properties["counts"] != nil {
+		t.Fatalf("robot-suggest schema still exposes stale counts property")
+	}
+
+	suggestionsProp, ok := properties["suggestions"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("suggestions property has unexpected type %T", properties["suggestions"])
+	}
+	if suggestionsProp["type"] != "object" {
+		t.Fatalf("suggestions property type = %v; want object", suggestionsProp["type"])
+	}
+	suggestionSetProperties, ok := suggestionsProp["properties"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("suggestion set properties has unexpected type %T", suggestionsProp["properties"])
+	}
+	for _, name := range []string{"suggestions", "generated_at", "data_hash", "stats"} {
+		if suggestionSetProperties[name] == nil {
+			t.Fatalf("robot-suggest nested suggestion set missing %q", name)
+		}
+	}
+
+	stats, ok := suggestionSetProperties["stats"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("stats property has unexpected type %T", suggestionSetProperties["stats"])
+	}
+	statsProperties, ok := stats["properties"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("stats nested properties has unexpected type %T", stats["properties"])
+	}
+	for _, name := range []string{"total", "by_type", "by_confidence", "high_confidence_count", "actionable_count"} {
+		if statsProperties[name] == nil {
+			t.Fatalf("robot-suggest stats schema missing %q", name)
+		}
+	}
+}
+
 func TestModifierFlagValidation(t *testing.T) {
 	exe := buildTestBinary(t)
 	tmpDir := t.TempDir()

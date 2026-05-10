@@ -754,6 +754,37 @@ func TestRobotDiffSchemaMatchesHandlerEnvelope(t *testing.T) {
 	}
 }
 
+func TestRobotForecastSchemaMatchesHandlerEnvelope(t *testing.T) {
+	schemas := generateRobotSchemas()
+	schema := schemas.Commands["robot-forecast"]
+	properties, ok := schema["properties"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("robot-forecast properties has unexpected type %T", schema["properties"])
+	}
+	for _, name := range []string{"agents", "filters", "forecast_count", "forecasts", "summary", "output_format", "version"} {
+		if properties[name] == nil {
+			t.Fatalf("robot-forecast schema missing top-level property %q", name)
+		}
+	}
+	if properties["methodology"] != nil {
+		t.Fatalf("robot-forecast schema still exposes stale methodology property")
+	}
+
+	summaryProp, ok := properties["summary"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("summary property has unexpected type %T", properties["summary"])
+	}
+	summaryProperties, ok := summaryProp["properties"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("summary nested properties has unexpected type %T", summaryProp["properties"])
+	}
+	for _, name := range []string{"total_minutes", "total_days", "avg_confidence", "earliest_eta", "latest_eta"} {
+		if summaryProperties[name] == nil {
+			t.Fatalf("robot-forecast summary schema missing %q", name)
+		}
+	}
+}
+
 func TestModifierFlagValidation(t *testing.T) {
 	exe := buildTestBinary(t)
 	tmpDir := t.TempDir()

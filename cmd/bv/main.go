@@ -8890,11 +8890,29 @@ func generateRobotSchemas() RobotSchemas {
 			"description": "ETA predictions with dependency-aware scheduling",
 			"type":        "object",
 			"properties": map[string]interface{}{
-				"generated_at": map[string]interface{}{"type": "string", "format": "date-time"},
-				"data_hash":    map[string]interface{}{"type": "string"},
-				"forecasts":    map[string]interface{}{"type": "array"},
-				"methodology":  map[string]interface{}{"type": "object"},
+				"generated_at":  map[string]interface{}{"type": "string", "format": "date-time"},
+				"data_hash":     map[string]interface{}{"type": "string"},
+				"output_format": map[string]interface{}{"type": "string", "enum": []string{"json", "toon"}},
+				"version":       map[string]interface{}{"type": "string"},
+				"agents":        map[string]interface{}{"type": "integer"},
+				"filters": map[string]interface{}{
+					"type":                 "object",
+					"additionalProperties": map[string]interface{}{"type": "string"},
+				},
+				"forecast_count": map[string]interface{}{"type": "integer"},
+				"forecasts":      map[string]interface{}{"type": "array"},
+				"summary": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"total_minutes":  map[string]interface{}{"type": "integer"},
+						"total_days":     map[string]interface{}{"type": "number"},
+						"avg_confidence": map[string]interface{}{"type": "number"},
+						"earliest_eta":   map[string]interface{}{"type": "string", "format": "date-time"},
+						"latest_eta":     map[string]interface{}{"type": "string", "format": "date-time"},
+					},
+				},
 			},
+			"required": []string{"generated_at", "data_hash", "output_format", "version", "agents", "forecast_count", "forecasts"},
 		},
 	}
 	for name, doc := range robotCommandDocs() {

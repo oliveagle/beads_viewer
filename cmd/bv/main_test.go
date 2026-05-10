@@ -766,6 +766,21 @@ func TestRobotDocsSchemaMatchesTopicOutputs(t *testing.T) {
 	}
 }
 
+func TestRobotHelpSchemaMatchesStructuredHelpAlias(t *testing.T) {
+	schemas := generateRobotSchemas()
+	properties := requireRobotSchemaProperties(t, schemas, "robot-help")
+	for _, name := range []string{"generated_at", "output_format", "version", "topic", "guide"} {
+		if properties[name] == nil {
+			t.Fatalf("robot-help schema missing property %q", name)
+		}
+	}
+	for _, stale := range []string{"data_hash", "commands", "examples", "environment_variables", "exit_codes"} {
+		if properties[stale] != nil {
+			t.Fatalf("robot-help schema still exposes stale or unrelated property %q", stale)
+		}
+	}
+}
+
 func TestRobotDiffSchemaMatchesHandlerEnvelope(t *testing.T) {
 	schemas := generateRobotSchemas()
 	schema := schemas.Commands["robot-diff"]

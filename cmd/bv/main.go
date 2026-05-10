@@ -8653,6 +8653,7 @@ func generateRobotSchemas() RobotSchemas {
 	commands := map[string]map[string]interface{}{
 		"robot-capabilities": robotCapabilitiesSchema(),
 		"robot-docs":         robotDocsOutputSchema(),
+		"robot-help":         robotHelpOutputSchema(),
 		"robot-schema":       robotSchemaOutputSchema(),
 		"robot-triage": {
 			"$schema":     "https://json-schema.org/draft/2020-12/schema",
@@ -9541,6 +9542,24 @@ func robotDocsOutputSchema() map[string]interface{} {
 			"suggested_action": map[string]interface{}{"type": "string"},
 		},
 		"required":             []string{"generated_at", "output_format", "version", "topic"},
+		"additionalProperties": false,
+	}
+}
+
+func robotHelpOutputSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"$schema":     "https://json-schema.org/draft/2020-12/schema",
+		"title":       "Robot Help Output",
+		"description": "Machine-readable guide output emitted by the agent-friendly `bv robot-help --json` invocation",
+		"type":        "object",
+		"properties": map[string]interface{}{
+			"generated_at":  map[string]interface{}{"type": "string", "format": "date-time"},
+			"output_format": map[string]interface{}{"type": "string", "enum": []string{"json", "toon"}},
+			"version":       map[string]interface{}{"type": "string"},
+			"topic":         map[string]interface{}{"type": "string", "const": "guide"},
+			"guide":         map[string]interface{}{"type": "object"},
+		},
+		"required":             []string{"generated_at", "output_format", "version", "topic", "guide"},
 		"additionalProperties": false,
 	}
 }

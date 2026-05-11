@@ -840,8 +840,9 @@ func TestRobotCorrelationStatsSchemaMatchesHandlerOutput(t *testing.T) {
 	docs := robotCommandDocs()
 	requireContainsString(t, docs["robot-correlation-stats"].KeyFields, "total_feedback")
 	requireContainsString(t, docs["robot-correlation-stats"].KeyFields, "accuracy_rate")
+	staleFields := map[string]struct{}{"total": {}, "by_user": {}}
 	for _, field := range docs["robot-correlation-stats"].KeyFields {
-		if field == "total" || field == "by_user" {
+		if _, ok := staleFields[field]; ok {
 			t.Fatalf("robot-correlation-stats key fields still contain stale field %q", field)
 		}
 	}
@@ -868,6 +869,99 @@ func TestRobotCorrelationStatsOutputIncludesEnvelope(t *testing.T) {
 	}
 	if payload["data_hash"] != nil {
 		t.Fatalf("robot-correlation-stats output should not include data_hash: %#v", payload)
+	}
+}
+
+func TestRobotFileWorkflowSchemasMatchHandlerOutputs(t *testing.T) {
+	schemas := generateRobotSchemas()
+	tests := []struct {
+		command          string
+		topLevelFields   []string
+		arrayField       string
+		arrayItemFields  []string
+		nestedObjectName string
+		nestedFields     []string
+	}{
+		{
+			command:         "robot-file-beads",
+			topLevelFields:  []string{"file_path", "total_beads", "open_beads", "closed_beads"},
+			arrayField:      "open_beads",
+			arrayItemFields: []string{"bead_id", "title", "status", "commit_shas", "last_touch", "total_changes"},
+		},
+		{
+			command:          "robot-file-hotspots",
+			topLevelFields:   []string{"hotspots", "stats"},
+			arrayField:       "hotspots",
+			arrayItemFields:  []string{"file_path", "total_beads", "open_beads", "closed_beads"},
+			nestedObjectName: "stats",
+			nestedFields:     []string{"total_files", "total_bead_links", "files_with_multiple_beads"},
+		},
+		{
+			command:         "robot-file-relations",
+			topLevelFields:  []string{"file_path", "total_commits", "threshold", "related_files"},
+			arrayField:      "related_files",
+			arrayItemFields: []string{"file_path", "co_change_count", "total_commits", "correlation", "sample_commits"},
+		},
+		{
+			command:         "robot-impact",
+			topLevelFields:  []string{"files", "risk_level", "risk_score", "summary", "warnings", "affected_beads"},
+			arrayField:      "affected_beads",
+			arrayItemFields: []string{"bead_id", "title", "status", "overlap_files", "overlap_count", "last_activity", "relevance", "total_changes"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.command, func(t *testing.T) {
+			properties := requireRobotSchemaProperties(t, schemas, tc.command)
+			for _, name := range []string{"generated_at", "data_hash", "output_format", "version"} {
+				if properties[name] == nil {
+					t.Fatalf("%s schema missing envelope property %q", tc.command, name)
+				}
+			}
+			for _, name := range tc.topLevelFields {
+				if properties[name] == nil {
+					t.Fatalf("%s schema missing top-level property %q", tc.command, name)
+				}
+			}
+			arrayProp, ok := properties[tc.arrayField].(map[string]interface{})
+			if !ok {
+				t.Fatalf("%s %s has unexpected type %T", tc.command, tc.arrayField, properties[tc.arrayField])
+			}
+			arrayTypes, ok := arrayProp["type"].([]string)
+			if !ok {
+				t.Fatalf("%s %s type has unexpected type %T", tc.command, tc.arrayField, arrayProp["type"])
+			}
+			requireContainsString(t, arrayTypes, "array")
+			requireContainsString(t, arrayTypes, "null")
+			itemProps := requireNestedSchemaProperties(t, arrayProp["items"], tc.command+" "+tc.arrayField+" item")
+			for _, name := range tc.arrayItemFields {
+				if itemProps[name] == nil {
+					t.Fatalf("%s %s item schema missing %q", tc.command, tc.arrayField, name)
+				}
+			}
+			if tc.nestedObjectName != "" {
+				nestedProps := requireNestedSchemaProperties(t, properties[tc.nestedObjectName], tc.command+" "+tc.nestedObjectName)
+				for _, name := range tc.nestedFields {
+					if nestedProps[name] == nil {
+						t.Fatalf("%s nested %s schema missing %q", tc.command, tc.nestedObjectName, name)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestRobotFileWorkflowDocsExposeLiveJSONPaths(t *testing.T) {
+	docs := robotCommandDocs()
+	expectations := map[string][]string{
+		"robot-file-beads":     {"file_path", "total_beads", "open_beads", "closed_beads"},
+		"robot-file-hotspots":  {"hotspots", "stats.total_files"},
+		"robot-file-relations": {"file_path", "total_commits", "threshold", "related_files"},
+		"robot-impact":         {"files", "risk_level", "risk_score", "affected_beads"},
+	}
+	for command, fields := range expectations {
+		for _, field := range fields {
+			requireContainsString(t, docs[command].KeyFields, field)
+		}
 	}
 }
 
@@ -908,7 +1002,7 @@ func TestRobotGroupedTriageSchemasMatchHandlerOutput(t *testing.T) {
 			}
 			if required, ok := triageSchema["required"].([]string); ok {
 				for _, name := range required {
-					if name == tc.groupProperty {
+					if strings.Compare(name, tc.groupProperty) == 0 {
 						t.Fatalf("%s should document optional grouped property %q without requiring it", tc.command, tc.groupProperty)
 					}
 				}
@@ -1104,7 +1198,7 @@ func TestRobotSuggestSchemaMatchesOutputShape(t *testing.T) {
 	if !ok {
 		t.Fatalf("suggestions property has unexpected type %T", properties["suggestions"])
 	}
-	if suggestionsProp["type"] != "object" {
+	if typeName, ok := suggestionsProp["type"].(string); !ok || strings.Compare(typeName, "object") != 0 {
 		t.Fatalf("suggestions property type = %v; want object", suggestionsProp["type"])
 	}
 	suggestionSetProperties, ok := suggestionsProp["properties"].(map[string]interface{})

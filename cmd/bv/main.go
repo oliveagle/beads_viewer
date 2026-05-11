@@ -8205,18 +8205,21 @@ func robotCommandDocs() map[string]robotCommandDoc {
 		},
 		"robot-file-beads": {
 			Flag: "--robot-file-beads <path>", Description: "Beads that touched a specific file path.",
+			KeyFields:   []string{"file_path", "total_beads", "open_beads", "closed_beads"},
 			Params:      []string{"--file-beads-limit <n>"},
 			NeedsIssues: true,
 			NeedsGit:    true,
 		},
 		"robot-file-hotspots": {
 			Flag: "--robot-file-hotspots", Description: "Files touched by the most beads.",
+			KeyFields:   []string{"hotspots", "stats.total_files", "stats.total_bead_links", "stats.files_with_multiple_beads"},
 			Params:      []string{"--hotspots-limit <n>"},
 			NeedsIssues: true,
 			NeedsGit:    true,
 		},
 		"robot-file-relations": {
 			Flag: "--robot-file-relations <path>", Description: "Files that frequently co-change with a given file.",
+			KeyFields:   []string{"file_path", "total_commits", "threshold", "related_files"},
 			Params:      []string{"--relations-threshold 0.0-1.0", "--relations-limit <n>"},
 			NeedsIssues: true,
 			NeedsGit:    true,
@@ -8280,6 +8283,7 @@ func robotCommandDocs() map[string]robotCommandDoc {
 		"robot-impact": {
 			Flag:        "--robot-impact <path[,path...]>",
 			Description: "Analyze bead impact for files that may be modified.",
+			KeyFields:   []string{"files", "risk_level", "risk_score", "warnings", "affected_beads"},
 			NeedsIssues: true,
 			NeedsGit:    true,
 		},
@@ -8951,6 +8955,10 @@ func generateRobotSchemas() RobotSchemas {
 			"required": []string{"generated_at", "output_format", "version", "recipes"},
 		},
 		"robot-correlation-stats": robotCorrelationStatsOutputSchema(),
+		"robot-file-beads":        robotFileBeadsOutputSchema(),
+		"robot-file-hotspots":     robotFileHotspotsOutputSchema(),
+		"robot-file-relations":    robotFileRelationsOutputSchema(),
+		"robot-impact":            robotImpactOutputSchema(),
 		"robot-metrics": {
 			"$schema":     "https://json-schema.org/draft/2020-12/schema",
 			"title":       "Robot Metrics Output",
@@ -9646,6 +9654,135 @@ func robotCorrelationStatsOutputSchema() map[string]interface{} {
 		"required": []string{
 			"generated_at", "output_format", "version", "total_feedback", "confirmed",
 			"rejected", "ignored", "accuracy_rate", "avg_confirm_conf", "avg_reject_conf",
+		},
+	}
+}
+
+func robotFileBeadsOutputSchema() map[string]interface{} {
+	return robotFileCommandOutputSchema("Robot File Beads Output", "Beads that touched a specific file path", map[string]interface{}{
+		"file_path":    map[string]interface{}{"type": "string"},
+		"total_beads":  map[string]interface{}{"type": "integer"},
+		"open_beads":   robotNullableArraySchema(robotBeadReferenceSchema()),
+		"closed_beads": robotNullableArraySchema(robotBeadReferenceSchema()),
+	}, []string{"generated_at", "data_hash", "output_format", "version", "file_path", "total_beads", "open_beads", "closed_beads"})
+}
+
+func robotFileHotspotsOutputSchema() map[string]interface{} {
+	return robotFileCommandOutputSchema("Robot File Hotspots Output", "Files touched by the most beads", map[string]interface{}{
+		"hotspots": robotNullableArraySchema(robotFileHotspotSchema()),
+		"stats":    robotFileIndexStatsSchema(),
+	}, []string{"generated_at", "data_hash", "output_format", "version", "hotspots", "stats"})
+}
+
+func robotFileRelationsOutputSchema() map[string]interface{} {
+	return robotFileCommandOutputSchema("Robot File Relations Output", "Files that frequently co-change with a given file", map[string]interface{}{
+		"file_path":     map[string]interface{}{"type": "string"},
+		"total_commits": map[string]interface{}{"type": "integer"},
+		"threshold":     map[string]interface{}{"type": "number"},
+		"related_files": robotNullableArraySchema(robotCoChangeEntrySchema()),
+	}, []string{"generated_at", "data_hash", "output_format", "version", "file_path", "total_commits", "threshold", "related_files"})
+}
+
+func robotImpactOutputSchema() map[string]interface{} {
+	return robotFileCommandOutputSchema("Robot Impact Output", "Bead impact analysis for files that may be modified", map[string]interface{}{
+		"files":          robotNullableArraySchema(map[string]interface{}{"type": "string"}),
+		"risk_level":     map[string]interface{}{"type": "string"},
+		"risk_score":     map[string]interface{}{"type": "number"},
+		"summary":        map[string]interface{}{"type": "string"},
+		"warnings":       robotNullableArraySchema(map[string]interface{}{"type": "string"}),
+		"affected_beads": robotNullableArraySchema(robotAffectedBeadSchema()),
+	}, []string{"generated_at", "data_hash", "output_format", "version", "files", "risk_level", "risk_score", "summary", "warnings", "affected_beads"})
+}
+
+func robotNullableArraySchema(items map[string]interface{}) map[string]interface{} {
+	return map[string]interface{}{
+		"type":  []string{"array", "null"},
+		"items": items,
+	}
+}
+
+func robotFileCommandOutputSchema(title, description string, commandProperties map[string]interface{}, required []string) map[string]interface{} {
+	properties := map[string]interface{}{
+		"generated_at":  map[string]interface{}{"type": "string", "format": "date-time"},
+		"data_hash":     map[string]interface{}{"type": "string"},
+		"output_format": map[string]interface{}{"type": "string", "enum": []string{"json", "toon"}},
+		"version":       map[string]interface{}{"type": "string"},
+	}
+	for name, schema := range commandProperties {
+		properties[name] = schema
+	}
+	return map[string]interface{}{
+		"$schema":     "https://json-schema.org/draft/2020-12/schema",
+		"title":       title,
+		"description": description,
+		"type":        "object",
+		"properties":  properties,
+		"required":    required,
+	}
+}
+
+func robotBeadReferenceSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"bead_id":       map[string]interface{}{"type": "string"},
+			"title":         map[string]interface{}{"type": "string"},
+			"status":        map[string]interface{}{"type": "string"},
+			"commit_shas":   robotNullableArraySchema(map[string]interface{}{"type": "string"}),
+			"last_touch":    map[string]interface{}{"type": "string", "format": "date-time"},
+			"total_changes": map[string]interface{}{"type": "integer"},
+		},
+	}
+}
+
+func robotFileHotspotSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"file_path":    map[string]interface{}{"type": "string"},
+			"total_beads":  map[string]interface{}{"type": "integer"},
+			"open_beads":   map[string]interface{}{"type": "integer"},
+			"closed_beads": map[string]interface{}{"type": "integer"},
+		},
+	}
+}
+
+func robotFileIndexStatsSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"total_files":               map[string]interface{}{"type": "integer"},
+			"total_bead_links":          map[string]interface{}{"type": "integer"},
+			"files_with_multiple_beads": map[string]interface{}{"type": "integer"},
+		},
+	}
+}
+
+func robotCoChangeEntrySchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"file_path":       map[string]interface{}{"type": "string"},
+			"co_change_count": map[string]interface{}{"type": "integer"},
+			"total_commits":   map[string]interface{}{"type": "integer"},
+			"correlation":     map[string]interface{}{"type": "number"},
+			"sample_commits":  robotNullableArraySchema(map[string]interface{}{"type": "string"}),
+		},
+	}
+}
+
+func robotAffectedBeadSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"bead_id":       map[string]interface{}{"type": "string"},
+			"title":         map[string]interface{}{"type": "string"},
+			"status":        map[string]interface{}{"type": "string"},
+			"overlap_files": robotNullableArraySchema(map[string]interface{}{"type": "string"}),
+			"overlap_count": map[string]interface{}{"type": "integer"},
+			"last_activity": map[string]interface{}{"type": "string", "format": "date-time"},
+			"relevance":     map[string]interface{}{"type": "number"},
+			"total_changes": map[string]interface{}{"type": "integer"},
 		},
 	}
 }

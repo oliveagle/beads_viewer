@@ -2224,22 +2224,7 @@ func handleRobotOrphans(ctx RobotContext, cfg phaseThreeRobotHandlerConfig) erro
 	if cfg.OrphansMinScore != nil {
 		minScore = *cfg.OrphansMinScore
 	}
-	filtered := make([]correlation.OrphanCandidate, 0, len(orphanReport.Candidates))
-	for _, candidate := range orphanReport.Candidates {
-		if candidate.SuspicionScore >= minScore {
-			filtered = append(filtered, candidate)
-		}
-	}
-	orphanReport.Candidates = filtered
-	orphanReport.Stats.CandidateCount = len(filtered)
-	orphanReport.Stats.AvgSuspicion = 0
-	if len(filtered) > 0 {
-		totalSuspicion := 0
-		for _, candidate := range filtered {
-			totalSuspicion += candidate.SuspicionScore
-		}
-		orphanReport.Stats.AvgSuspicion = float64(totalSuspicion) / float64(len(filtered))
-	}
+	filterOrphanReportByMinScore(orphanReport, minScore)
 
 	output := struct {
 		*correlation.OrphanReport
@@ -2254,6 +2239,31 @@ func handleRobotOrphans(ctx RobotContext, cfg phaseThreeRobotHandlerConfig) erro
 		return fmt.Errorf("encoding orphan report: %w", err)
 	}
 	return nil
+}
+
+func filterOrphanReportByMinScore(orphanReport *correlation.OrphanReport, minScore int) {
+	filtered := make([]correlation.OrphanCandidate, 0, len(orphanReport.Candidates))
+	byBead := make(map[string][]string)
+	totalSuspicion := 0
+
+	for _, candidate := range orphanReport.Candidates {
+		if candidate.SuspicionScore < minScore {
+			continue
+		}
+		filtered = append(filtered, candidate)
+		totalSuspicion += candidate.SuspicionScore
+		for _, bead := range candidate.ProbableBeads {
+			byBead[bead.BeadID] = append(byBead[bead.BeadID], candidate.ShortSHA)
+		}
+	}
+
+	orphanReport.Candidates = filtered
+	orphanReport.ByBead = byBead
+	orphanReport.Stats.CandidateCount = len(filtered)
+	orphanReport.Stats.AvgSuspicion = 0
+	if len(filtered) > 0 {
+		orphanReport.Stats.AvgSuspicion = float64(totalSuspicion) / float64(len(filtered))
+	}
 }
 
 func handleRobotFileBeads(ctx RobotContext, cfg phaseThreeRobotHandlerConfig) error {

@@ -4254,24 +4254,7 @@ func main() {
 				os.Exit(1)
 			}
 
-			// Filter by minimum score
-			var filteredCandidates []correlation.OrphanCandidate
-			for _, candidate := range orphanReport.Candidates {
-				if candidate.SuspicionScore >= *orphansMinScore {
-					filteredCandidates = append(filteredCandidates, candidate)
-				}
-			}
-			orphanReport.Candidates = filteredCandidates
-
-			// Update stats for filtered results
-			orphanReport.Stats.CandidateCount = len(filteredCandidates)
-			if len(filteredCandidates) > 0 {
-				totalSuspicion := 0
-				for _, c := range filteredCandidates {
-					totalSuspicion += c.SuspicionScore
-				}
-				orphanReport.Stats.AvgSuspicion = float64(totalSuspicion) / float64(len(filteredCandidates))
-			}
+			filterOrphanReportByMinScore(orphanReport, *orphansMinScore)
 
 			// Wrap orphan report with standard envelope fields
 			type OrphanOutputEnvelope struct {

@@ -309,6 +309,92 @@ func TestWatcher_FileRemoved(t *testing.T) {
 	}
 }
 
+func TestWatcher_PollingFileRemovedReportsOnce(t *testing.T) {
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "test.jsonl")
+
+	if err := os.WriteFile(tmpFile, []byte("initial"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var removedErrors atomic.Int32
+	w, err := NewWatcher(tmpFile,
+		WithDebounceDuration(5*time.Millisecond),
+		WithPollInterval(10*time.Millisecond),
+		WithForcePoll(true),
+		WithOnError(func(err error) {
+			if err == ErrFileRemoved {
+				removedErrors.Add(1)
+			}
+		}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer w.Stop()
+
+	if err := os.Rename(tmpFile, tmpFile+".moved"); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.After(500 * time.Millisecond)
+	for removedErrors.Load() == 0 {
+		select {
+		case <-deadline:
+			t.Fatal("timeout waiting for removal error")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+
+	time.Sleep(75 * time.Millisecond)
+	if count := removedErrors.Load(); count != 1 {
+		t.Fatalf("expected one removal error, got %d", count)
+	}
+}
+
+func TestWatcher_PollingDetectsBackwardMtimeChangeSameSize(t *testing.T) {
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "test.jsonl")
+
+	if err := os.WriteFile(tmpFile, []byte("aaaa"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	initialMtime := time.Now().Add(24 * time.Hour).Truncate(time.Second)
+	if err := os.Chtimes(tmpFile, initialMtime, initialMtime); err != nil {
+		t.Fatal(err)
+	}
+
+	w, err := NewWatcher(tmpFile,
+		WithDebounceDuration(5*time.Millisecond),
+		WithPollInterval(10*time.Millisecond),
+		WithForcePoll(true),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer w.Stop()
+
+	if err := os.WriteFile(tmpFile, []byte("bbbb"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	olderMtime := initialMtime.Add(-time.Hour)
+	if err := os.Chtimes(tmpFile, olderMtime, olderMtime); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case <-w.Changed():
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timeout waiting for same-size backward-mtime change")
+	}
+}
+
 func TestWatcher_StartStop(t *testing.T) {
 	tmpDir := t.TempDir()
 	tmpFile := filepath.Join(tmpDir, "test.jsonl")
@@ -384,6 +470,25 @@ func TestWatcher_PollInterval(t *testing.T) {
 
 	if got := w.PollInterval(); got != customInterval {
 		t.Errorf("expected poll interval %v, got %v", customInterval, got)
+	}
+}
+
+func TestWatcher_InvalidPollIntervalUsesDefault(t *testing.T) {
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "test.jsonl")
+
+	if err := os.WriteFile(tmpFile, []byte("initial"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, interval := range []time.Duration{0, -time.Millisecond} {
+		w, err := NewWatcher(tmpFile, WithPollInterval(interval))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := w.PollInterval(); got != DefaultPollInterval {
+			t.Fatalf("PollInterval(%v) = %v, want %v", interval, got, DefaultPollInterval)
+		}
 	}
 }
 

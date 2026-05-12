@@ -197,6 +197,30 @@ func TestPreviewFileServer_RejectsEscapedSymlink(t *testing.T) {
 	}
 }
 
+func TestValidatePreviewBundle_RejectsEscapedIndexSymlink(t *testing.T) {
+	tmpDir := t.TempDir()
+	bundleDir := filepath.Join(tmpDir, "bundle")
+	if err := os.Mkdir(bundleDir, 0755); err != nil {
+		t.Fatalf("Failed to create bundle dir: %v", err)
+	}
+
+	outsideIndex := filepath.Join(tmpDir, "index.html")
+	if err := os.WriteFile(outsideIndex, []byte("<html>outside</html>"), 0644); err != nil {
+		t.Fatalf("Failed to create outside index: %v", err)
+	}
+	if err := os.Symlink(outsideIndex, filepath.Join(bundleDir, "index.html")); err != nil {
+		t.Skipf("Symlinks are not available on this platform: %v", err)
+	}
+
+	_, err := validatePreviewBundle(bundleDir)
+	if err == nil {
+		t.Fatal("Expected escaped index.html symlink to be rejected")
+	}
+	if !strings.Contains(err.Error(), "index.html escapes bundle") {
+		t.Fatalf("Expected escaped index error, got: %v", err)
+	}
+}
+
 func TestPreviewServer_Integration(t *testing.T) {
 	// Create a temp bundle directory
 	tmpDir := t.TempDir()
@@ -258,7 +282,7 @@ func TestPreviewServer_Integration(t *testing.T) {
 	}
 
 	// Check body
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
 	if err != nil {
 		t.Fatalf("Failed to read body: %v", err)
 	}
@@ -278,7 +302,10 @@ func TestPreviewServer_Integration(t *testing.T) {
 		t.Errorf("Expected status 200, got %d", statusResp.StatusCode)
 	}
 
-	statusBody, _ := io.ReadAll(statusResp.Body)
+	statusBody, err := io.ReadAll(io.LimitReader(statusResp.Body, 1024*1024))
+	if err != nil {
+		t.Fatalf("Failed to read status body: %v", err)
+	}
 	if len(statusBody) == 0 {
 		t.Error("Expected non-empty status response")
 	}
@@ -331,7 +358,7 @@ func TestPreviewServer_StatusHandler_EmitsValidJSON(t *testing.T) {
 	}
 
 	var got statusResponse
-	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+	if err := json.NewDecoder(io.LimitReader(rec.Body, 1024*1024)).Decode(&got); err != nil {
 		t.Fatalf("expected valid JSON, got error: %v (body=%q)", err, rec.Body.String())
 	}
 

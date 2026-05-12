@@ -1459,13 +1459,24 @@ func GenerateTriageReasons(ctx TriageReasonContext) TriageReasons {
 	}
 
 	// 6. Agent claim status
-	isInProgress := ctx.Issue != nil && ctx.Issue.Status == model.StatusInProgress
-	isBlockedStatus := ctx.Issue != nil && ctx.Issue.Status == model.StatusBlocked
-	isNonOpenStatus := ctx.Issue != nil &&
-		ctx.Issue.Status != "" &&
-		ctx.Issue.Status != model.StatusOpen &&
+	//
+	// Defensive contract (#149): we only emit the "✅ Currently unclaimed"
+	// hint when we have actual evidence the issue is open AND unclaimed.
+	// The previous logic fell through to "unclaimed" whenever Issue was
+	// nil or Status was empty/unrecognized — that produced misleading
+	// reasons on issues we couldn't resolve through the analyzer, and
+	// (combined with stale snapshot data) was the most plausible source
+	// of the IN_PROGRESS + "currently unclaimed" contradiction the user
+	// reported.
+	hasIssueRecord := ctx.Issue != nil
+	statusRecognized := hasIssueRecord && ctx.Issue.Status.IsValid()
+	isInProgress := hasIssueRecord && ctx.Issue.Status == model.StatusInProgress
+	isBlockedStatus := hasIssueRecord && ctx.Issue.Status == model.StatusBlocked
+	isOpenStatus := hasIssueRecord && ctx.Issue.Status == model.StatusOpen
+	isNonOpenStatus := statusRecognized &&
 		!isInProgress &&
-		!isBlockedStatus
+		!isBlockedStatus &&
+		!isOpenStatus
 	if isInProgress {
 		if ctx.ClaimedByAgent != "" {
 			reason := fmt.Sprintf("👤 Claimed by %s", ctx.ClaimedByAgent)
@@ -1489,13 +1500,18 @@ func GenerateTriageReasons(ctx TriageReasonContext) TriageReasons {
 			reasons = append(reasons, claimReason)
 			actionHint = fmt.Sprintf("Contact %s if you want to help", ctx.ClaimedByAgent)
 		}
-	} else if ctx.ClaimedByAgent == "" {
+	} else if isOpenStatus && ctx.ClaimedByAgent == "" {
+		// Only emit the "available for work" hint when we positively know
+		// the issue is Open and has no assignee. Falling back to this
+		// branch on missing/unknown status surfaces a misleading hint.
 		reasons = append(reasons, "✅ Currently unclaimed - available for work")
-	} else {
+	} else if ctx.ClaimedByAgent != "" {
 		reason := fmt.Sprintf("👤 Claimed by %s", ctx.ClaimedByAgent)
 		reasons = append(reasons, reason)
 		actionHint = fmt.Sprintf("Contact %s if you want to help", ctx.ClaimedByAgent)
 	}
+	// Else: no issue record or unrecognized status with no assignee —
+	// stay silent on claim status rather than guess.
 
 	// 7. Blocked status context
 	if len(ctx.BlockedByIDs) > 0 {

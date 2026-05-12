@@ -828,6 +828,9 @@ func TestGenerateTriageReasons_EmptyContext(t *testing.T) {
 
 func TestGenerateTriageReasons_UnblockCascade(t *testing.T) {
 	ctx := TriageReasonContext{
+		Issue: &model.Issue{
+			Status: model.StatusOpen,
+		},
 		UnblocksIDs: []string{"bv-1", "bv-2", "bv-3", "bv-4", "bv-5"},
 	}
 	reasons := GenerateTriageReasons(ctx)
@@ -924,8 +927,11 @@ func TestGenerateTriageReasons_QuickWin(t *testing.T) {
 }
 
 func TestGenerateTriageReasons_ClaimStatus(t *testing.T) {
-	// Unclaimed
+	// Unclaimed — requires positive evidence the issue is Open (#149 fix).
 	ctx := TriageReasonContext{
+		Issue: &model.Issue{
+			Status: model.StatusOpen,
+		},
 		ClaimedByAgent: "",
 	}
 	reasons := GenerateTriageReasons(ctx)
@@ -938,11 +944,14 @@ func TestGenerateTriageReasons_ClaimStatus(t *testing.T) {
 		}
 	}
 	if !foundUnclaimed {
-		t.Error("expected reason about being unclaimed")
+		t.Error("expected reason about being unclaimed on Open issue")
 	}
 
-	// Claimed
+	// Open + claimed
 	ctx2 := TriageReasonContext{
+		Issue: &model.Issue{
+			Status: model.StatusOpen,
+		},
 		ClaimedByAgent: "OtherAgent",
 	}
 	reasons2 := GenerateTriageReasons(ctx2)
@@ -956,6 +965,20 @@ func TestGenerateTriageReasons_ClaimStatus(t *testing.T) {
 	}
 	if !foundClaimed {
 		t.Error("expected reason about being claimed by OtherAgent")
+	}
+
+	// Nil-issue defensive contract (#149): with no issue record we must
+	// stay silent on claim status rather than guess "unclaimed". The
+	// previous behavior happily emitted the unclaimed hint with no
+	// context, which (under stale snapshot conditions) was the most
+	// plausible source of the IN_PROGRESS + "currently unclaimed"
+	// contradiction the user reported.
+	ctxNil := TriageReasonContext{ClaimedByAgent: ""}
+	reasonsNil := GenerateTriageReasons(ctxNil)
+	for _, r := range reasonsNil.All {
+		if contains(r, "unclaimed") {
+			t.Fatalf("nil-issue context must not emit unclaimed hint; got: %v", reasonsNil.All)
+		}
 	}
 
 	// In progress should not be described as unclaimed.

@@ -981,6 +981,36 @@ func TestGenerateTriageReasons_ClaimStatus(t *testing.T) {
 		}
 	}
 
+	// Custom non-enum status: the #149 fix tightens the unclaimed hint
+	// to require positive Open, but the "Status is X - not ready to
+	// claim" message must still fire for any non-empty unrecognized
+	// status. Silencing it would be a regression for projects that
+	// use custom Status values like "in_review" or "needs_approval".
+	ctxCustom := TriageReasonContext{
+		Issue: &model.Issue{
+			Status: model.Status("needs_approval"),
+		},
+	}
+	reasonsCustom := GenerateTriageReasons(ctxCustom)
+	foundStatusMessage := false
+	for _, r := range reasonsCustom.All {
+		if contains(r, "needs_approval") {
+			foundStatusMessage = true
+			break
+		}
+	}
+	if !foundStatusMessage {
+		t.Fatalf(
+			"custom Status value must surface as \"Status is needs_approval\" reason; got: %v",
+			reasonsCustom.All,
+		)
+	}
+	for _, r := range reasonsCustom.All {
+		if contains(r, "unclaimed") {
+			t.Fatalf("custom-status issue must not be described as unclaimed; got: %v", reasonsCustom.All)
+		}
+	}
+
 	// In progress should not be described as unclaimed.
 	ctx3 := TriageReasonContext{
 		Issue: &model.Issue{

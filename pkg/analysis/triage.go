@@ -1469,11 +1469,19 @@ func GenerateTriageReasons(ctx TriageReasonContext) TriageReasons {
 	// of the IN_PROGRESS + "currently unclaimed" contradiction the user
 	// reported.
 	hasIssueRecord := ctx.Issue != nil
-	statusRecognized := hasIssueRecord && ctx.Issue.Status.IsValid()
+	hasRecordedStatus := hasIssueRecord && ctx.Issue.Status != ""
 	isInProgress := hasIssueRecord && ctx.Issue.Status == model.StatusInProgress
 	isBlockedStatus := hasIssueRecord && ctx.Issue.Status == model.StatusBlocked
 	isOpenStatus := hasIssueRecord && ctx.Issue.Status == model.StatusOpen
-	isNonOpenStatus := statusRecognized &&
+	// isNonOpenStatus matches the pre-#149 contract: any issue record
+	// with a recorded non-empty Status that isn't Open/InProgress/Blocked
+	// gets the "Status is X - not ready to claim" message. That covers
+	// both enumerated statuses we know about (Deferred, Draft, Pinned,
+	// Hooked, Review, Closed, Tombstone) AND custom-string statuses
+	// projects may use that we don't recognize — silencing those would
+	// be a regression. The unclaimed hint stays tighter: only emitted
+	// when we positively know the issue is Open.
+	isNonOpenStatus := hasRecordedStatus &&
 		!isInProgress &&
 		!isBlockedStatus &&
 		!isOpenStatus
@@ -1510,8 +1518,8 @@ func GenerateTriageReasons(ctx TriageReasonContext) TriageReasons {
 		reasons = append(reasons, reason)
 		actionHint = fmt.Sprintf("Contact %s if you want to help", ctx.ClaimedByAgent)
 	}
-	// Else: no issue record or unrecognized status with no assignee —
-	// stay silent on claim status rather than guess.
+	// Else: no issue record or empty status with no assignee — stay
+	// silent on claim status rather than guess.
 
 	// 7. Blocked status context
 	if len(ctx.BlockedByIDs) > 0 {

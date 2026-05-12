@@ -41,6 +41,9 @@ func TestNewLock_FirstInstance(t *testing.T) {
 	if info.PID != os.Getpid() {
 		t.Errorf("expected PID %d, got %d", os.Getpid(), info.PID)
 	}
+	if info.OwnerID == "" {
+		t.Error("expected lock file to include owner ID")
+	}
 }
 
 func TestNewLock_SecondInstance(t *testing.T) {
@@ -136,6 +139,44 @@ func TestLock_Release(t *testing.T) {
 	lock.Release()
 }
 
+func TestLock_ReleaseDoesNotRemoveReplacedLock(t *testing.T) {
+	tmpDir := t.TempDir()
+	lockPath := filepath.Join(tmpDir, LockFileName)
+
+	staleInfo := LockInfo{
+		PID:       99999999,
+		StartedAt: time.Now().Add(-time.Hour),
+		Hostname:  "stale-host",
+	}
+	writeLockInfoForTest(t, lockPath, staleInfo)
+
+	lock, err := NewLock(tmpDir)
+	if err != nil {
+		t.Fatalf("NewLock failed: %v", err)
+	}
+	if !lock.IsFirstInstance() {
+		t.Fatal("expected stale lock takeover to become first instance")
+	}
+
+	replacement := LockInfo{
+		PID:       os.Getpid(),
+		StartedAt: time.Now(),
+		Hostname:  "replacement-host",
+		OwnerID:   "replacement-owner",
+	}
+	writeLockInfoForTest(t, lockPath, replacement)
+
+	lock.Release()
+
+	got, err := readLockFile(lockPath)
+	if err != nil {
+		t.Fatalf("replacement lock should remain after releasing stale takeover: %v", err)
+	}
+	if got.OwnerID != replacement.OwnerID {
+		t.Fatalf("expected replacement owner ID %q, got %q", replacement.OwnerID, got.OwnerID)
+	}
+}
+
 func TestLock_ReleaseAllowsNewLock(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -204,6 +245,7 @@ func TestLockInfo_JSON(t *testing.T) {
 		PID:       12345,
 		StartedAt: time.Now().Truncate(time.Second),
 		Hostname:  "test-host",
+		OwnerID:   "test-owner",
 	}
 
 	data, err := json.Marshal(info)
@@ -224,6 +266,9 @@ func TestLockInfo_JSON(t *testing.T) {
 	}
 	if parsed.Hostname != info.Hostname {
 		t.Errorf("Hostname mismatch: expected %q, got %q", info.Hostname, parsed.Hostname)
+	}
+	if parsed.OwnerID != info.OwnerID {
+		t.Errorf("OwnerID mismatch: expected %q, got %q", info.OwnerID, parsed.OwnerID)
 	}
 }
 
@@ -294,7 +339,7 @@ func TestNewLock_ConcurrentStaleTakeover(t *testing.T) {
 	results := make(chan result, numGoroutines)
 
 	for i := 0; i < numGoroutines; i++ {
-		go func() {
+		go func(_ int) {
 			lock, err := NewLock(tmpDir)
 			if err != nil {
 				results <- result{nil, false}
@@ -302,7 +347,7 @@ func TestNewLock_ConcurrentStaleTakeover(t *testing.T) {
 			}
 			// Don't release here - we need to keep locks held until all goroutines finish
 			results <- result{lock, lock.IsFirstInstance()}
-		}()
+		}(i)
 	}
 
 	// Collect all results and count first instances
@@ -326,5 +371,17 @@ func TestNewLock_ConcurrentStaleTakeover(t *testing.T) {
 	// Exactly one goroutine should claim to be first instance
 	if firstCount != 1 {
 		t.Errorf("Expected exactly 1 goroutine to be first instance, got %d", firstCount)
+	}
+}
+
+func writeLockInfoForTest(t *testing.T, path string, info LockInfo) {
+	t.Helper()
+
+	data, err := json.Marshal(info)
+	if err != nil {
+		t.Fatalf("marshaling lock info: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatalf("writing lock info: %v", err)
 	}
 }

@@ -4,6 +4,8 @@
 package instance
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -22,6 +24,7 @@ type LockInfo struct {
 	PID       int       `json:"pid"`
 	StartedAt time.Time `json:"started_at"`
 	Hostname  string    `json:"hostname,omitempty"`
+	OwnerID   string    `json:"owner_id,omitempty"`
 }
 
 // Lock represents an instance lock for a beads directory.
@@ -31,6 +34,7 @@ type Lock struct {
 	lockFile *os.File
 	pid      int
 	isFirst  bool
+	ownerID  string
 }
 
 // LockFileName is the name of the lock file created in .beads directory.
@@ -64,16 +68,24 @@ func NewLock(beadsDir string) (*Lock, error) {
 		return nil, fmt.Errorf("creating lock file: %w", err)
 	}
 
+	ownerID, err := newLockOwnerID()
+	if err != nil {
+		_ = file.Close()
+		removeLockFileBestEffort(lockPath)
+		return nil, fmt.Errorf("generating lock owner id: %w", err)
+	}
+
 	// We got the lock - write our info
 	lock := &Lock{
 		path:     lockPath,
 		lockFile: file,
 		isFirst:  true,
 		pid:      os.Getpid(),
+		ownerID:  ownerID,
 	}
 	if err := lock.writeLockInfo(); err != nil {
-		file.Close()
-		os.Remove(lockPath)
+		_ = file.Close()
+		removeLockFileBestEffort(lockPath)
 		return nil, fmt.Errorf("writing lock info: %w", err)
 	}
 
@@ -85,12 +97,20 @@ func (l *Lock) writeLockInfo() error {
 	if l.lockFile == nil {
 		return nil
 	}
+	if l.ownerID == "" {
+		ownerID, err := newLockOwnerID()
+		if err != nil {
+			return fmt.Errorf("generating lock owner id: %w", err)
+		}
+		l.ownerID = ownerID
+	}
 
 	hostname, _ := os.Hostname()
 	info := LockInfo{
 		PID:       os.Getpid(),
 		StartedAt: time.Now(),
 		Hostname:  hostname,
+		OwnerID:   l.ownerID,
 	}
 
 	// Truncate and seek to beginning before writing
@@ -159,6 +179,11 @@ func (l *Lock) checkStale() {
 	// Stale lock detected - attempt atomic takeover using rename
 	// This avoids the race condition of delete + create with O_EXCL
 	tmpPath := fmt.Sprintf("%s.%d", l.path, os.Getpid())
+	ownerID, err := newLockOwnerID()
+	if err != nil {
+		return
+	}
+	ownerPID := os.Getpid()
 
 	// Create temp file with our lock info
 	file, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
@@ -168,18 +193,26 @@ func (l *Lock) checkStale() {
 
 	hostname, _ := os.Hostname()
 	info := LockInfo{
-		PID:       os.Getpid(),
+		PID:       ownerPID,
 		StartedAt: time.Now(),
 		Hostname:  hostname,
+		OwnerID:   ownerID,
 	}
 
 	if err := json.NewEncoder(file).Encode(info); err != nil {
-		file.Close()
-		os.Remove(tmpPath)
+		_ = file.Close()
+		removeLockFileBestEffort(tmpPath)
 		return
 	}
-	file.Sync() // Ensure written to disk before rename
-	file.Close()
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		removeLockFileBestEffort(tmpPath)
+		return
+	}
+	if err := file.Close(); err != nil {
+		removeLockFileBestEffort(tmpPath)
+		return
+	}
 
 	// Atomic rename to take over the lock
 	// On most filesystems, rename is atomic and will overwrite the existing file.
@@ -193,15 +226,15 @@ func (l *Lock) checkStale() {
 				}
 			}
 		}
-		os.Remove(tmpPath)
+		removeLockFileBestEffort(tmpPath)
 		return
 	}
 
 verify:
-	// Verify we won the race by re-reading and checking our PID
+	// Verify we won the race by re-reading and checking our owner ID.
 	// This handles the case where two processes both rename simultaneously
 	verifyInfo, err := readLockFile(l.path)
-	if err != nil || verifyInfo.PID != os.Getpid() {
+	if err != nil || verifyInfo.PID != ownerPID || verifyInfo.OwnerID != ownerID {
 		// Lost the race to another process - don't claim ownership
 		return
 	}
@@ -210,7 +243,8 @@ verify:
 	// The lock is enforced by file existence + content, so we don't need to keep
 	// the file open after takeover (it will be closed by the OS on exit anyway).
 	l.isFirst = true
-	l.pid = os.Getpid()
+	l.pid = ownerPID
+	l.ownerID = ownerID
 }
 
 // isProcessAlive is implemented in platform-specific files:
@@ -221,16 +255,46 @@ verify:
 // This should be called when the application exits.
 func (l *Lock) Release() {
 	if l.lockFile != nil {
-		l.lockFile.Close()
+		_ = l.lockFile.Close()
 		l.lockFile = nil
 	}
 
-	// Only remove the lock file if we own it
-	if l.isFirst {
-		os.Remove(l.path)
+	if l.isFirst && l.ownsCurrentLockFile() {
+		if err := os.Remove(l.path); err != nil && !os.IsNotExist(err) {
+			l.isFirst = false
+			return
+		}
 	}
 
 	l.isFirst = false
+}
+
+func (l *Lock) ownsCurrentLockFile() bool {
+	info, err := readLockFile(l.path)
+	if err != nil {
+		return false
+	}
+	if info.PID != l.pid {
+		return false
+	}
+	if l.ownerID != "" {
+		return info.OwnerID == l.ownerID
+	}
+	return true
+}
+
+func newLockOwnerID() (string, error) {
+	var ownerID [16]byte
+	if _, err := rand.Read(ownerID[:]); err != nil {
+		return "", fmt.Errorf("reading random lock owner id: %w", err)
+	}
+	return hex.EncodeToString(ownerID[:]), nil
+}
+
+func removeLockFileBestEffort(path string) {
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return
+	}
 }
 
 // Path returns the path to the lock file.

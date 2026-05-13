@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -739,23 +740,43 @@ func robotDiskCacheEnabled() bool {
 // Returns zero time on any error (which disables the mtime check).
 func beadsDirModTime() time.Time {
 	// Check BEADS_DB first, then BEADS_DIR, then cwd/.beads
-	dbPath := os.Getenv("BEADS_DB")
-	if dbPath != "" {
+	beadsDir := ""
+	if dbPath := os.Getenv("BEADS_DB"); dbPath != "" {
 		info, err := os.Stat(dbPath)
 		if err == nil {
-			return info.ModTime()
+			if !info.IsDir() {
+				return info.ModTime()
+			}
+			beadsDir = dbPath
+		} else if looksLikeBeadsDBFile(dbPath) {
+			beadsDir = filepath.Dir(dbPath)
 		}
 	}
 
-	beadsDir := os.Getenv("BEADS_DIR")
 	if beadsDir == "" {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return time.Time{}
+		beadsDir = os.Getenv("BEADS_DIR")
+		if beadsDir == "" {
+			cwd, err := os.Getwd()
+			if err != nil {
+				return time.Time{}
+			}
+			beadsDir = filepath.Join(cwd, ".beads")
 		}
-		beadsDir = filepath.Join(cwd, ".beads")
 	}
 
+	return beadsTreeModTime(beadsDir)
+}
+
+func looksLikeBeadsDBFile(dbPath string) bool {
+	switch strings.ToLower(filepath.Ext(dbPath)) {
+	case ".jsonl", ".db", ".sqlite", ".sqlite3":
+		return true
+	default:
+		return false
+	}
+}
+
+func beadsTreeModTime(beadsDir string) time.Time {
 	info, err := os.Stat(beadsDir)
 	if err != nil {
 		return time.Time{}
@@ -768,22 +789,24 @@ func beadsDirModTime() time.Time {
 	// We walk subdirectories (e.g. .beads/history/) because modifications
 	// inside them don't always update parent directory mtime.
 	latest := info.ModTime()
-	_ = filepath.WalkDir(beadsDir, func(path string, d fs.DirEntry, err error) error {
+	if err := filepath.WalkDir(beadsDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return nil // skip unreadable entries
+			return err
 		}
 		if d.IsDir() {
 			return nil // continue into subdirs but don't use dir mtime
 		}
 		finfo, err := d.Info()
 		if err != nil {
-			return nil
+			return err
 		}
 		if finfo.ModTime().After(latest) {
 			latest = finfo.ModTime()
 		}
 		return nil
-	})
+	}); err != nil {
+		return time.Time{}
+	}
 	return latest
 }
 

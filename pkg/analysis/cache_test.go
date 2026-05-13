@@ -479,6 +479,128 @@ func TestRobotDiskCache_WritesAndHits(t *testing.T) {
 	}
 }
 
+func TestRobotDiskCache_BeadsDBDirectoryUsesChildModTime(t *testing.T) {
+	t.Setenv("BV_ROBOT", "1")
+	cacheDir := t.TempDir()
+	t.Setenv("BV_CACHE_DIR", cacheDir)
+
+	tmpDir := t.TempDir()
+	beadsDir := filepath.Join(tmpDir, ".beads")
+	if err := os.MkdirAll(beadsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	jsonlPath := filepath.Join(beadsDir, "beads.jsonl")
+	if err := os.WriteFile(jsonlPath, []byte(`{"id":"A","title":"A","status":"open","issue_type":"task"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dirModTime := time.Now().Add(-2 * time.Hour).UTC()
+	staleCreatedAt := dirModTime.Add(time.Hour)
+	childModTime := staleCreatedAt.Add(10 * time.Minute)
+	if err := os.Chtimes(beadsDir, dirModTime, dirModTime); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(jsonlPath, childModTime, childModTime); err != nil {
+		t.Fatal(err)
+	}
+	dirInfo, err := os.Stat(beadsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !dirInfo.ModTime().Before(staleCreatedAt) {
+		t.Fatalf("test setup requires directory mtime before stale cache entry: got %v, want before %v", dirInfo.ModTime(), staleCreatedAt)
+	}
+	childInfo, err := os.Stat(jsonlPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !childInfo.ModTime().After(staleCreatedAt) {
+		t.Fatalf("test setup requires child mtime after stale cache entry: got %v, want after %v", childInfo.ModTime(), staleCreatedAt)
+	}
+	t.Setenv("BEADS_DB", beadsDir)
+
+	issues := []model.Issue{
+		{ID: "A", Status: model.StatusOpen},
+		{ID: "B", Status: model.StatusOpen, Dependencies: []*model.Dependency{
+			{DependsOnID: "A", Type: model.DepBlocks},
+		}},
+	}
+	config := analysis.ConfigForSize(2, 1)
+	dataHash := analysis.ComputeDataHash(issues)
+	configHash := analysis.ComputeConfigHash(&config)
+	fullKey := dataHash + "|" + configHash
+
+	an := analysis.NewAnalyzer(issues)
+	stats1 := an.AnalyzeAsyncWithConfig(context.Background(), config)
+	stats1.WaitForPhase2()
+
+	cachePath := filepath.Join(cacheDir, "analysis_cache.json")
+	raw, err := os.ReadFile(cachePath)
+	if err != nil {
+		t.Fatalf("reading cache file: %v", err)
+	}
+	var cf struct {
+		Version int                                   `json:"version"`
+		Entries map[string]map[string]json.RawMessage `json:"entries"`
+	}
+	if err := json.Unmarshal(raw, &cf); err != nil {
+		t.Fatalf("parsing cache json: %v", err)
+	}
+	if cf.Version != 1 {
+		t.Fatalf("cache version: got %d, want %d", cf.Version, 1)
+	}
+	entry, ok := cf.Entries[fullKey]
+	if !ok {
+		t.Fatalf("expected cache entry for key %q", fullKey)
+	}
+	createdAtRaw, err := json.Marshal(staleCreatedAt)
+	if err != nil {
+		t.Fatalf("marshalling stale timestamp: %v", err)
+	}
+	zeroDurationRaw, err := json.Marshal(int64(0))
+	if err != nil {
+		t.Fatalf("marshalling compute duration: %v", err)
+	}
+	entry["created_at"] = createdAtRaw
+	entry["accessed_at"] = createdAtRaw
+	entry["compute_duration"] = zeroDurationRaw
+	cf.Entries[fullKey] = entry
+	raw, err = json.Marshal(cf)
+	if err != nil {
+		t.Fatalf("marshalling cache json: %v", err)
+	}
+	if err := os.WriteFile(cachePath, raw, 0o644); err != nil {
+		t.Fatalf("writing cache file: %v", err)
+	}
+
+	an2 := analysis.NewAnalyzer(issues)
+	stats2 := an2.AnalyzeAsyncWithConfig(context.Background(), config)
+	stats2.WaitForPhase2()
+	if !stats2.IsPhase2Ready() {
+		t.Fatal("expected recomputed stats to reach phase2 ready")
+	}
+
+	raw, err = os.ReadFile(cachePath)
+	if err != nil {
+		t.Fatalf("reading rewritten cache file: %v", err)
+	}
+	var updated struct {
+		Entries map[string]struct {
+			CreatedAt time.Time `json:"created_at"`
+		} `json:"entries"`
+	}
+	if err := json.Unmarshal(raw, &updated); err != nil {
+		t.Fatalf("parsing rewritten cache json: %v", err)
+	}
+	updatedEntry, ok := updated.Entries[fullKey]
+	if !ok {
+		t.Fatalf("expected rewritten cache entry for key %q", fullKey)
+	}
+	if !updatedEntry.CreatedAt.After(staleCreatedAt) {
+		t.Fatalf("expected child file mtime to invalidate stale cache entry, got CreatedAt %v", updatedEntry.CreatedAt)
+	}
+}
+
 func TestRobotDiskCache_XFetchRefreshRecomputes(t *testing.T) {
 	t.Setenv("BV_ROBOT", "1")
 	cacheDir := t.TempDir()

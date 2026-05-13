@@ -478,6 +478,65 @@ hooks:
 	}
 }
 
+func TestLoaderNormalizesOnErrorValues(t *testing.T) {
+	tmpDir := t.TempDir()
+	bvDir := filepath.Join(tmpDir, ".bv")
+	if err := os.MkdirAll(bvDir, 0755); err != nil {
+		t.Fatalf("failed to create .bv dir: %v", err)
+	}
+
+	configContent := `
+hooks:
+  pre-export:
+    - name: typo
+      command: exit 1
+      on_error: fail-fast
+    - name: upper
+      command: echo ok
+      on_error: CONTINUE
+  post-export:
+    - name: typo
+      command: exit 1
+      on_error: keep-going
+`
+	configPath := filepath.Join(bvDir, "hooks.yaml")
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	loader := NewLoader(WithProjectDir(tmpDir))
+	if err := loader.Load(); err != nil {
+		t.Fatalf("failed to load config: %v", err)
+	}
+
+	preHooks := loader.GetHooks(PreExport)
+	if len(preHooks) != 2 {
+		t.Fatalf("expected 2 pre-export hooks, got %d", len(preHooks))
+	}
+	if preHooks[0].OnError != "fail" {
+		t.Fatalf("invalid pre-export on_error should default to fail, got %q", preHooks[0].OnError)
+	}
+	if preHooks[1].OnError != "continue" {
+		t.Fatalf("uppercase on_error should normalize to continue, got %q", preHooks[1].OnError)
+	}
+
+	postHooks := loader.GetHooks(PostExport)
+	if len(postHooks) != 1 {
+		t.Fatalf("expected 1 post-export hook, got %d", len(postHooks))
+	}
+	if postHooks[0].OnError != "continue" {
+		t.Fatalf("invalid post-export on_error should default to continue, got %q", postHooks[0].OnError)
+	}
+
+	warnings := strings.Join(loader.Warnings(), "\n")
+	if !strings.Contains(warnings, `invalid on_error "fail-fast"`) {
+		t.Fatalf("expected warning for invalid pre-export on_error, got %q", warnings)
+	}
+	if !strings.Contains(warnings, `invalid on_error "keep-going"`) {
+		t.Fatalf("expected warning for invalid post-export on_error, got %q", warnings)
+	}
+}
+
 func TestRunPreExportStopsOnFail(t *testing.T) {
 	config := &Config{
 		Hooks: HooksByPhase{

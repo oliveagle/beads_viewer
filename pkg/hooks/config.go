@@ -140,12 +140,16 @@ func normalizeHooks(hooks []Hook, phase HookPhase, warnings []string) ([]Hook, [
 		if hook.Timeout == 0 {
 			hook.Timeout = DefaultTimeout
 		}
-		if hook.OnError == "" {
-			if phase == PreExport {
-				hook.OnError = "fail" // pre-export failures cancel export by default
-			} else {
-				hook.OnError = "continue" // post-export failures don't break export by default
-			}
+		onError := strings.ToLower(strings.TrimSpace(hook.OnError))
+		switch onError {
+		case "":
+			hook.OnError = defaultOnError(phase)
+		case "fail", "continue":
+			hook.OnError = onError
+		default:
+			fallback := defaultOnError(phase)
+			warnings = append(warnings, fmt.Sprintf("%s hook %d has invalid on_error %q; using %q", phase, i+1, hook.OnError, fallback))
+			hook.OnError = fallback
 		}
 		if hook.Name == "" {
 			hook.Name = fmt.Sprintf("%s-%d", phase, i+1)
@@ -153,6 +157,13 @@ func normalizeHooks(hooks []Hook, phase HookPhase, warnings []string) ([]Hook, [
 		out = append(out, hook)
 	}
 	return out, warnings
+}
+
+func defaultOnError(phase HookPhase) string {
+	if phase == PreExport {
+		return "fail"
+	}
+	return "continue"
 }
 
 // Config returns the loaded configuration (or empty if not loaded)

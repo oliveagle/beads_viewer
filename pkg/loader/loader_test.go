@@ -1089,6 +1089,46 @@ func TestLoadIssuesFromFile_AllFields(t *testing.T) {
 	if issue.Priority != 1 {
 		t.Errorf("Priority mismatch: %d", issue.Priority)
 	}
+	if len(issue.Dependencies) != 1 {
+		t.Fatalf("expected 1 dependency, got %d", len(issue.Dependencies))
+	}
+	if issue.Dependencies[0].IssueID != "full-1" {
+		t.Errorf("dependency IssueID = %q, want full-1", issue.Dependencies[0].IssueID)
+	}
+	if issue.Dependencies[0].DependsOnID != "other-1" {
+		t.Errorf("dependency DependsOnID = %q, want other-1", issue.Dependencies[0].DependsOnID)
+	}
+}
+
+func TestLoadIssuesFromFile_DependencyTargetAliases(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "deps.jsonl")
+	content := `{"id":"target-alias","title":"Target alias","status":"open","issue_type":"task","dependencies":[{"target_id":"root","type":"blocks"}]}
+{"id":"depends-alias","title":"Depends alias","status":"open","issue_type":"task","dependencies":[{"depends_on":"root","type":"blocks"}]}
+{"id":"canonical","title":"Canonical","status":"open","issue_type":"task","dependencies":[{"depends_on_id":"root","type":"blocks"}]}`
+	if err := os.WriteFile(path, []byte(content+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	issues, err := loader.LoadIssuesFromFile(path)
+	if err != nil {
+		t.Fatalf("LoadIssuesFromFile: %v", err)
+	}
+	if len(issues) != 3 {
+		t.Fatalf("expected 3 issues, got %d", len(issues))
+	}
+	for _, issue := range issues {
+		if len(issue.Dependencies) != 1 {
+			t.Fatalf("%s expected 1 dependency, got %d", issue.ID, len(issue.Dependencies))
+		}
+		dep := issue.Dependencies[0]
+		if dep.IssueID != issue.ID {
+			t.Fatalf("%s dependency IssueID = %q, want %q", issue.ID, dep.IssueID, issue.ID)
+		}
+		if dep.DependsOnID != "root" {
+			t.Fatalf("%s dependency DependsOnID = %q, want root", issue.ID, dep.DependsOnID)
+		}
+	}
 }
 
 // =============================================================================

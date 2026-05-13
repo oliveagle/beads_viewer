@@ -221,6 +221,50 @@ func TestDependency_Struct(t *testing.T) {
 	}
 }
 
+func TestDependency_UnmarshalJSON_TargetAliases(t *testing.T) {
+	tests := []struct {
+		name string
+		json string
+		want string
+	}{
+		{
+			name: "canonical depends_on_id",
+			json: `{"issue_id":"A","depends_on_id":"B","type":"blocks"}`,
+			want: "B",
+		},
+		{
+			name: "legacy depends_on",
+			json: `{"issue_id":"A","depends_on":"C","type":"blocks"}`,
+			want: "C",
+		},
+		{
+			name: "legacy target_id",
+			json: `{"issue_id":"A","target_id":"D","type":"blocks"}`,
+			want: "D",
+		},
+		{
+			name: "canonical wins over aliases",
+			json: `{"issue_id":"A","depends_on_id":"B","depends_on":"C","target_id":"D","type":"blocks"}`,
+			want: "B",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var dep Dependency
+			if err := json.Unmarshal([]byte(tt.json), &dep); err != nil {
+				t.Fatalf("UnmarshalJSON: %v", err)
+			}
+			if dep.DependsOnID != tt.want {
+				t.Fatalf("DependsOnID = %q, want %q", dep.DependsOnID, tt.want)
+			}
+			if dep.Type != DepBlocks {
+				t.Fatalf("Type = %q, want %q", dep.Type, DepBlocks)
+			}
+		})
+	}
+}
+
 func TestComment_Struct(t *testing.T) {
 	now := time.Now()
 	comment := &Comment{
@@ -245,9 +289,9 @@ func TestComment_Struct(t *testing.T) {
 // loading after the schema change.
 func TestComment_UnmarshalJSON_AcceptsStringAndNumberIDs(t *testing.T) {
 	cases := []struct {
-		name    string
-		raw     string
-		wantID  string
+		name   string
+		raw    string
+		wantID string
 	}{
 		{
 			name:   "uuidv7 string id (beads v1.0+)",

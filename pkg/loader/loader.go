@@ -562,7 +562,7 @@ func parseIssuesWithOptions(r io.Reader, opts ParseOptions, usePool bool) ([]mod
 				continue
 			}
 
-			issue.Status = normalizeIssueStatus(issue.Status)
+			normalizeLoadedIssue(issue)
 
 			// Validate issue
 			if err := issue.Validate(); err != nil {
@@ -592,7 +592,7 @@ func parseIssuesWithOptions(r io.Reader, opts ParseOptions, usePool bool) ([]mod
 				continue
 			}
 
-			issue.Status = normalizeIssueStatus(issue.Status)
+			normalizeLoadedIssue(&issue)
 
 			// Validate issue
 			if err := issue.Validate(); err != nil {
@@ -685,4 +685,16 @@ func normalizeIssueStatus(status model.Status) model.Status {
 		return ""
 	}
 	return model.Status(strings.ToLower(trimmed))
+}
+
+func normalizeLoadedIssue(issue *model.Issue) {
+	issue.Status = normalizeIssueStatus(issue.Status)
+	for _, dep := range issue.Dependencies {
+		if dep == nil {
+			continue
+		}
+		if dep.IssueID == "" {
+			dep.IssueID = issue.ID
+		}
+	}
 }

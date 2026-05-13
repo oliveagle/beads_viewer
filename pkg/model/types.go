@@ -192,6 +192,39 @@ type Dependency struct {
 	CreatedBy   string         `json:"created_by"`
 }
 
+// UnmarshalJSON accepts the dependency target field names emitted by the
+// Beads ecosystem. `depends_on_id` is the canonical field; `depends_on` and
+// `target_id` appear in older JSONL exports and should still produce graph
+// edges instead of silently loading as empty dependencies.
+func (d *Dependency) UnmarshalJSON(data []byte) error {
+	type rawDependency struct {
+		IssueID     string         `json:"issue_id"`
+		DependsOnID string         `json:"depends_on_id"`
+		DependsOn   string         `json:"depends_on"`
+		TargetID    string         `json:"target_id"`
+		Type        DependencyType `json:"type"`
+		CreatedAt   time.Time      `json:"created_at"`
+		CreatedBy   string         `json:"created_by"`
+	}
+	var raw rawDependency
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	d.IssueID = raw.IssueID
+	d.DependsOnID = raw.DependsOnID
+	if d.DependsOnID == "" {
+		d.DependsOnID = raw.DependsOn
+	}
+	if d.DependsOnID == "" {
+		d.DependsOnID = raw.TargetID
+	}
+	d.Type = raw.Type
+	d.CreatedAt = raw.CreatedAt
+	d.CreatedBy = raw.CreatedBy
+	return nil
+}
+
 // IssueMetrics holds computed metrics for export/robot consumers.
 type IssueMetrics struct {
 	PageRank          float64 `json:"pagerank,omitempty"`

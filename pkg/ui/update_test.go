@@ -1,13 +1,16 @@
 package ui
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/Dicklesworthstone/beads_viewer/pkg/analysis"
+	"github.com/Dicklesworthstone/beads_viewer/pkg/loader"
 	"github.com/Dicklesworthstone/beads_viewer/pkg/model"
 	"github.com/charmbracelet/bubbles/list"
+	_ "modernc.org/sqlite"
 )
 
 // exercise Phase2Ready and FileChanged branches of Update for coverage.
@@ -105,6 +108,82 @@ func TestUpdateFileChangedReloadsSelection(t *testing.T) {
 	m2 := updated.(Model)
 	if m2.statusIsError {
 		t.Fatalf("expected successful reload, got error %q", m2.statusMsg)
+	}
+}
+
+func TestUpdateFileChangedReloadsSQLiteSource(t *testing.T) {
+	t.Setenv("BV_BACKGROUND_MODE", "0")
+
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "beads.sqlite3")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if _, err := db.Exec(`
+		CREATE TABLE issues (
+			id TEXT PRIMARY KEY,
+			title TEXT NOT NULL,
+			status TEXT NOT NULL
+		);
+		INSERT INTO issues (id, title, status) VALUES ('SQLITE-1', 'SQLite issue', 'open');
+	`); err != nil {
+		_ = db.Close()
+		t.Fatalf("seed sqlite: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close sqlite: %v", err)
+	}
+
+	m := NewModel(nil, nil, dbPath)
+	if m.watcher != nil {
+		defer m.watcher.Stop()
+	}
+
+	updated, _ := m.Update(FileChangedMsg{})
+	m2 := updated.(Model)
+	if m2.statusIsError {
+		t.Fatalf("expected successful sqlite reload, got error %q", m2.statusMsg)
+	}
+	if len(m2.issues) != 1 || m2.issues[0].ID != "SQLITE-1" {
+		t.Fatalf("unexpected sqlite reload issues: %#v", m2.issues)
+	}
+}
+
+func TestLoadIssuesForReloadSQLiteHonorsIssueFilter(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "beads.sqlite3")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if _, err := db.Exec(`
+		CREATE TABLE issues (
+			id TEXT PRIMARY KEY,
+			title TEXT NOT NULL,
+			status TEXT NOT NULL
+		);
+		INSERT INTO issues (id, title, status) VALUES
+			('OPEN-1', 'Open issue', 'open'),
+			('CLOSED-1', 'Closed issue', 'closed');
+	`); err != nil {
+		_ = db.Close()
+		t.Fatalf("seed sqlite: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close sqlite: %v", err)
+	}
+
+	loaded, err := loadIssuesForReload(dbPath, loader.ParseOptions{
+		IssueFilter: func(issue *model.Issue) bool {
+			return issue.Status != model.StatusClosed
+		},
+	})
+	if err != nil {
+		t.Fatalf("load sqlite reload issues: %v", err)
+	}
+	if len(loaded.Issues) != 1 || loaded.Issues[0].ID != "OPEN-1" {
+		t.Fatalf("unexpected filtered sqlite issues: %#v", loaded.Issues)
 	}
 }
 

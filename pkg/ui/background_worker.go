@@ -445,16 +445,17 @@ func (w *BackgroundWorker) openTraceFile() {
 }
 
 func (w *BackgroundWorker) closeTraceFile() {
-	if w == nil || w.traceFile == nil {
+	if w == nil {
 		return
 	}
 	w.traceMu.Lock()
 	f := w.traceFile
-	w.traceFile = nil
-	w.traceMu.Unlock()
 	if f == nil {
+		w.traceMu.Unlock()
 		return
 	}
+	w.traceFile = nil
+	w.traceMu.Unlock()
 	if err := f.Close(); err != nil {
 		w.logEvent(LogLevelWarn, "trace_close_failed", map[string]any{
 			"path":  w.tracePath,
@@ -467,7 +468,10 @@ func (w *BackgroundWorker) logEvent(level WorkerLogLevel, event string, fields m
 	if w == nil || level == LogLevelNone {
 		return
 	}
-	if w.traceFile == nil && (w.logLevel == LogLevelNone || level > w.logLevel) {
+	w.traceMu.Lock()
+	traceEnabled := w.traceFile != nil
+	w.traceMu.Unlock()
+	if !traceEnabled && (w.logLevel == LogLevelNone || level > w.logLevel) {
 		return
 	}
 
@@ -489,7 +493,7 @@ func (w *BackgroundWorker) logEvent(level WorkerLogLevel, event string, fields m
 	if w.logLevel != LogLevelNone && level <= w.logLevel {
 		log.Printf("%s", b)
 	}
-	if w.traceFile != nil {
+	if traceEnabled {
 		w.traceMu.Lock()
 		if w.traceFile != nil {
 			_, _ = w.traceFile.Write(append(b, '\n'))
@@ -1373,7 +1377,7 @@ func (w *BackgroundWorker) buildSnapshot() *DataSnapshot {
 				return i.Status != model.StatusClosed && i.Status != model.StatusTombstone
 			}
 		}
-		loaded, err = loader.LoadIssuesFromFileWithOptionsPooled(w.beadsPath, opts)
+		loaded, err = loadIssuesForReload(w.beadsPath, opts)
 		if err == nil {
 			issues = loaded.Issues
 			pooledRefs = loaded.PoolRefs
@@ -1432,18 +1436,16 @@ func (w *BackgroundWorker) buildSnapshot() *DataSnapshot {
 	if prevSnapshot != nil {
 		diffValue := analysis.ComputeIssueDiff(prevSnapshot.Issues, issues)
 		diff = &diffValue
-		if w.logLevel >= LogLevelDebug || w.traceFile != nil {
-			w.logEvent(LogLevelDebug, "snapshot_diff", map[string]any{
-				"added":              len(diffValue.Added),
-				"removed":            len(diffValue.Removed),
-				"modified":           len(diffValue.Modified),
-				"content_changed":    len(diffValue.ContentChanged),
-				"dependency_changed": len(diffValue.DependencyChanged),
-				"unchanged":          len(diffValue.Unchanged),
-				"total_prev":         len(prevSnapshot.Issues),
-				"total_new":          len(issues),
-			})
-		}
+		w.logEvent(LogLevelDebug, "snapshot_diff", map[string]any{
+			"added":              len(diffValue.Added),
+			"removed":            len(diffValue.Removed),
+			"modified":           len(diffValue.Modified),
+			"content_changed":    len(diffValue.ContentChanged),
+			"dependency_changed": len(diffValue.DependencyChanged),
+			"unchanged":          len(diffValue.Unchanged),
+			"total_prev":         len(prevSnapshot.Issues),
+			"total_new":          len(issues),
+		})
 	}
 
 	// Build snapshot (includes Phase 1 analysis) with panic recovery

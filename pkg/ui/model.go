@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Dicklesworthstone/beads_viewer/internal/datasource"
 	"github.com/Dicklesworthstone/beads_viewer/pkg/agents"
 	"github.com/Dicklesworthstone/beads_viewer/pkg/analysis"
 	"github.com/Dicklesworthstone/beads_viewer/pkg/baseline"
@@ -202,6 +203,31 @@ func WatchFileCmd(w *watcher.Watcher) tea.Cmd {
 	return func() tea.Msg {
 		<-w.Changed()
 		return FileChangedMsg{}
+	}
+}
+
+func loadIssuesForReload(path string, opts loader.ParseOptions) (loader.PooledIssues, error) {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".db", ".sqlite", ".sqlite3":
+		source, ok, err := datasource.SourceFromFile(path)
+		if err != nil {
+			return loader.PooledIssues{}, err
+		}
+		if !ok {
+			return loader.PooledIssues{}, fmt.Errorf("unsupported SQLite source path: %s", path)
+		}
+		reader, err := datasource.NewReader(source)
+		if err != nil {
+			return loader.PooledIssues{}, err
+		}
+		defer reader.Close()
+		issues, err := reader.LoadIssuesFiltered(opts.IssueFilter)
+		if err != nil {
+			return loader.PooledIssues{}, err
+		}
+		return loader.PooledIssues{Issues: issues}, nil
+	default:
+		return loader.LoadIssuesFromFileWithOptionsPooled(path, opts)
 	}
 }
 
@@ -2046,7 +2072,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if profileRefresh {
 			loadStart = time.Now()
 		}
-		loadedIssues, err := loader.LoadIssuesFromFileWithOptionsPooled(m.beadsPath, loader.ParseOptions{
+		loadedIssues, err := loadIssuesForReload(m.beadsPath, loader.ParseOptions{
 			WarningHandler: func(msg string) {
 				reloadWarnings = append(reloadWarnings, msg)
 			},

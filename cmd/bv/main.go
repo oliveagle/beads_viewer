@@ -2324,9 +2324,9 @@ func main() {
 				fmt.Fprintln(os.Stderr, "Make sure you are in a project initialized with 'br init'.")
 				os.Exit(1)
 			}
-			// Get beads file path for live reload (respects BEADS_DIR env var)
+			// Get the selected source file for live reload.
 			beadsDir, _ := loader.GetBeadsDir("")
-			beadsPath, _ = loader.FindJSONLPath(beadsDir)
+			beadsPath, _ = resolveSingleRepoWatchFile("")
 
 			// Automatically ensure .bv/ is in .gitignore to prevent polluting git
 			// with search indexes, baselines, and other bv-specific files.

@@ -259,7 +259,7 @@ func (ctx *TriageContext) UnblocksMap() map[string][]string {
 	}
 
 	// Compute unblocks using the same logic as buildUnblocksMap
-	ctx.unblocksMap = buildUnblocksMap(ctx.analyzer)
+	ctx.unblocksMap = buildUnblocksMap(ctx)
 	ctx.unblocksComputed = true
 	return ctx.unblocksMap
 }

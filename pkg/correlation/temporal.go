@@ -49,6 +49,7 @@ type TemporalWindow struct {
 	AuthorEmail string
 	Start       time.Time // When bead was claimed
 	End         time.Time // When bead was closed
+	ActiveBeads int       // How many beads the author had active during this window
 }
 
 // FindCommitsInWindow finds commits by the specified author within the given time window
@@ -164,7 +165,7 @@ func (t *TemporalCorrelator) calculateTemporalConfidence(window TemporalWindow, 
 	base := 0.50
 
 	// Factor 1: How many beads was this author working on?
-	activeBeads := t.activeByAuth[window.AuthorEmail]
+	activeBeads := t.activeBeadCount(window)
 	if activeBeads <= 1 {
 		base += 0.20 // Only one bead = higher confidence
 	} else if activeBeads == 2 {
@@ -207,7 +208,7 @@ func (t *TemporalCorrelator) generateTemporalReason(window TemporalWindow, files
 		parts = append(parts, fmt.Sprintf("long window (%dd)", int(windowDuration.Hours()/24)))
 	}
 
-	activeBeads := t.activeByAuth[window.AuthorEmail]
+	activeBeads := t.activeBeadCount(window)
 	if activeBeads <= 1 {
 		parts = append(parts, "author had only this bead active")
 	} else if activeBeads > 3 {
@@ -219,6 +220,18 @@ func (t *TemporalCorrelator) generateTemporalReason(window TemporalWindow, files
 	}
 
 	return strings.Join(parts, "; ")
+}
+
+func (t *TemporalCorrelator) activeBeadCount(window TemporalWindow) int {
+	if window.ActiveBeads > 0 {
+		return window.ActiveBeads
+	}
+	if t.activeByAuth != nil {
+		if count, ok := t.activeByAuth[window.AuthorEmail]; ok {
+			return count
+		}
+	}
+	return 1
 }
 
 // pathHintPatterns extracts potential file-related keywords from text
@@ -296,15 +309,31 @@ func ExtractWindowFromMilestones(beadID, title string, milestones BeadMilestones
 func (t *TemporalCorrelator) ExtractAllTemporalCorrelations(histories map[string]BeadHistory) ([]CorrelatedCommit, error) {
 	var allCommits []CorrelatedCommit
 
-	// First, calculate active beads per author at any given time
-	// This is a simplification - we count all in_progress beads per author
-	t.calculateActiveBeadsPerAuthor(histories)
-
 	for beadID, history := range histories {
 		window := ExtractWindowFromMilestones(beadID, history.Title, history.Milestones)
 		if window == nil {
 			continue
 		}
+
+		// Calculate concurrent beads for this author during this window
+		concurrent := 0
+		for _, otherHistory := range histories {
+			if otherHistory.Milestones.Claimed != nil && otherHistory.Milestones.Claimed.AuthorEmail == window.AuthorEmail {
+				start := otherHistory.Milestones.Claimed.Timestamp
+				var end time.Time
+				if otherHistory.Milestones.Closed != nil {
+					end = otherHistory.Milestones.Closed.Timestamp
+				} else {
+					end = time.Now()
+				}
+
+				// Check for overlap: start1 < end2 && end1 > start2
+				if start.Before(window.End) && end.After(window.Start) {
+					concurrent++
+				}
+			}
+		}
+		window.ActiveBeads = concurrent
 
 		commits, err := t.FindCommitsInWindow(*window)
 		if err != nil {
@@ -319,6 +348,7 @@ func (t *TemporalCorrelator) ExtractAllTemporalCorrelations(histories map[string
 }
 
 // calculateActiveBeadsPerAuthor computes how many beads each author had in progress
+// Deprecated: Concurrent active beads are now calculated per-window in ExtractAllTemporalCorrelations
 func (t *TemporalCorrelator) calculateActiveBeadsPerAuthor(histories map[string]BeadHistory) {
 	authorCounts := make(map[string]int)
 

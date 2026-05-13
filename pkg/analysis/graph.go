@@ -2537,62 +2537,59 @@ func (a *Analyzer) GetBlockerChain(issueID string) *BlockerChainResult {
 
 	result.IsBlocked = true
 
-	// BFS to find all blockers and detect cycles
-	visited := make(map[string]bool)
-	visited[issueID] = true
+	// DFS to find all blockers, detect cycles, and collect roots
+	visited := make(map[string]bool)  // fully processed
+	visiting := make(map[string]bool) // in current path
 
-	type queueItem struct {
-		id    string
-		depth int
-	}
-	queue := []queueItem{}
-
-	// Add direct blockers to queue
-	for _, blockerID := range openBlockers {
-		queue = append(queue, queueItem{id: blockerID, depth: 1})
-	}
-
-	for len(queue) > 0 {
-		item := queue[0]
-		queue = queue[1:]
-
-		if visited[item.id] {
-			// Cycle detected
+	var dfs func(id string, depth int)
+	dfs = func(id string, depth int) {
+		if visiting[id] {
 			result.HasCycle = true
-			result.CycleIDs = append(result.CycleIDs, item.id)
-			continue
+			result.CycleIDs = append(result.CycleIDs, id)
+			return
 		}
-		visited[item.id] = true
+		if visited[id] {
+			return
+		}
+		visiting[id] = true
 
-		blocker, exists := a.issueMap[item.id]
+		blocker, exists := a.issueMap[id]
 		if !exists {
-			continue
+			visiting[id] = false
+			visited[id] = true
+			return
 		}
 
-		blockerOpenBlockers := a.GetOpenBlockers(item.id)
+		blockerOpenBlockers := a.GetOpenBlockers(id)
 		isRoot := len(blockerOpenBlockers) == 0
 
-		entry := BlockerChainEntry{
-			ID:          item.id,
-			Title:       blocker.Title,
-			Status:      string(blocker.Status),
-			Priority:    blocker.Priority,
-			Depth:       item.depth,
-			IsRoot:      isRoot,
-			Actionable:  isRoot,
-			BlocksCount: a.countBlockedBy(item.id),
-		}
-		result.Chain = append(result.Chain, entry)
+		if id != issueID {
+			entry := BlockerChainEntry{
+				ID:          id,
+				Title:       blocker.Title,
+				Status:      string(blocker.Status),
+				Priority:    blocker.Priority,
+				Depth:       depth,
+				IsRoot:      isRoot,
+				Actionable:  isRoot,
+				BlocksCount: a.countBlockedBy(id),
+			}
+			result.Chain = append(result.Chain, entry)
 
-		if isRoot {
-			result.RootBlockers = append(result.RootBlockers, entry)
-		} else {
-			// Add this blocker's blockers to queue
-			for _, nextID := range blockerOpenBlockers {
-				queue = append(queue, queueItem{id: nextID, depth: item.depth + 1})
+			if isRoot {
+				result.RootBlockers = append(result.RootBlockers, entry)
 			}
 		}
+
+		for _, nextID := range blockerOpenBlockers {
+			dfs(nextID, depth+1)
+		}
+
+		visiting[id] = false
+		visited[id] = true
 	}
+
+	dfs(issueID, 0)
 
 	result.ChainLength = len(result.Chain) - 1 // Exclude target itself
 

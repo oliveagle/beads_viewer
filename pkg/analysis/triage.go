@@ -460,17 +460,17 @@ func ComputeTriageFromAnalyzer(analyzer *Analyzer, stats *GraphStats, issues []m
 	// This caches actionable issues, blocker depths, etc. across all sub-functions
 	triageCtx := NewTriageContext(analyzer)
 
-	// Compute impact scores using the already-computed stats
-	impactScores := analyzer.ComputeImpactScoresFromStats(stats, now)
+	// Get unblocks map from context (bv-wjs0)
+	unblocksMap := triageCtx.UnblocksMap()
 
-	// Build unblocks map
-	unblocksMap := buildUnblocksMap(analyzer)
+	// Compute impact scores using the already-computed stats.
+	impactScores := analyzer.ComputeImpactScoresFromStats(stats, now)
 
 	// Compute counts (uses cached actionable issues)
 	counts := computeCountsWithContext(issues, triageCtx)
 
 	// Compute enhanced triage scores (bv-147)
-	triageScores := computeTriageScoresFromImpact(impactScores, unblocksMap, analyzer, DefaultTriageScoringOptions())
+	triageScores := computeTriageScoresFromImpact(impactScores, triageCtx, DefaultTriageScoringOptions())
 
 	// Build recommendations using enhanced scores (bv-148).
 	// Top picks need to search the *full* scored set, not the
@@ -610,84 +610,33 @@ func ComputeStaleness(history *correlation.HistoryReport, issues []model.Issue, 
 }
 
 // buildUnblocksMap computes what each issue unblocks
-func buildUnblocksMap(analyzer *Analyzer) map[string][]string {
-	// O(E) unblocks computation.
-	//
-	// Semantics (must match Analyzer.computeUnblocks):
-	// - Only blocking deps count (dep.Type.IsBlocking()).
-	// - Missing blockers don't block (ignore deps whose target isn't in issueMap).
-	// - Duplicate deps must not double-count (graph edges are unique).
-	// - Closing blocker B unblocks dependent D iff all other existing blocking deps of D are closed.
-	// - Closed/tombstone dependents are ignored.
-	// - Result slices are sorted for determinism.
-	if analyzer == nil || analyzer.g == nil {
-		return map[string][]string{}
-	}
+func buildUnblocksMap(ctx *TriageContext) map[string][]string {
+	unblocksMap := make(map[string][]string)
 
-	nodeCount := analyzer.g.Nodes().Len()
-	if nodeCount == 0 {
-		return map[string][]string{}
-	}
-
-	open := make([]bool, nodeCount)
-	for id, issue := range analyzer.issueMap {
-		nodeID, ok := analyzer.idToNode[id]
-		if !ok || nodeID < 0 || int(nodeID) >= nodeCount {
-			continue
-		}
-		if !isClosedLikeStatus(issue.Status) {
-			open[nodeID] = true
-		}
-	}
-
-	openBlockerCount := make([]int, nodeCount)
-	nodes := analyzer.g.Nodes()
-	for nodes.Next() {
-		u := nodes.Node().ID()
-		if u < 0 || int(u) >= nodeCount || !open[u] {
-			continue
-		}
-		blockers := analyzer.g.From(u)
-		for blockers.Next() {
-			v := blockers.Node().ID()
-			if v < 0 || int(v) >= nodeCount {
-				continue
-			}
-			if open[v] {
-				openBlockerCount[u]++
-			}
-		}
-	}
-
-	unblocksMap := make(map[string][]string, nodeCount)
-	nodes = analyzer.g.Nodes()
-	for nodes.Next() {
-		v := nodes.Node().ID()
-		if v < 0 || int(v) >= nodeCount || !open[v] {
-			continue
-		}
-		blockerID := analyzer.nodeToID[v]
-		if blockerID == "" {
+	// We only care about blocking dependencies
+	for _, issue := range ctx.analyzer.issueMap {
+		if isClosedLikeStatus(issue.Status) {
 			continue
 		}
 
-		dependents := analyzer.g.To(v)
-		var unblocks []string
-		for dependents.Next() {
-			u := dependents.Node().ID()
-			if u < 0 || int(u) >= nodeCount || !open[u] {
-				continue
-			}
-			if openBlockerCount[u] == 1 {
-				dependentID := analyzer.nodeToID[u]
-				if dependentID != "" {
-					unblocks = append(unblocks, dependentID)
-				}
-			}
+		if _, ok := unblocksMap[issue.ID]; !ok {
+			unblocksMap[issue.ID] = nil
 		}
 
+		// Get all open blockers for this issue (including parents)
+		openBlockers := ctx.getOpenBlockersInternal(issue.ID)
+
+		// If this issue is blocked by exactly ONE issue, completing that
+		// one issue will unblock this one.
+		if len(openBlockers) == 1 {
+			blockerID := openBlockers[0]
+			unblocksMap[blockerID] = append(unblocksMap[blockerID], issue.ID)
+		}
+	}
+
+	// Sort for determinism
+	for _, unblocks := range unblocksMap {
 		sort.Strings(unblocks)
-		unblocksMap[blockerID] = unblocks
 	}
 
 	return unblocksMap
@@ -1136,14 +1085,15 @@ func ComputeTriageScoresWithOptions(issues []model.Issue, opts TriageScoringOpti
 	analyzer := NewAnalyzer(issues)
 	baseScores := analyzer.ComputeImpactScores()
 
-	// Build unblocks map for factor calculation
-	unblocksMap := buildUnblocksMap(analyzer)
+	triageCtx := NewTriageContext(analyzer)
 
-	return computeTriageScoresFromImpact(baseScores, unblocksMap, analyzer, opts)
+	return computeTriageScoresFromImpact(baseScores, triageCtx, opts)
 }
 
 // computeTriageScoresFromImpact calculates triage scores from base impact scores
-func computeTriageScoresFromImpact(baseScores []ImpactScore, unblocksMap map[string][]string, analyzer *Analyzer, opts TriageScoringOptions) []TriageScore {
+func computeTriageScoresFromImpact(baseScores []ImpactScore, triageCtx *TriageContext, opts TriageScoringOptions) []TriageScore {
+	unblocksMap := triageCtx.UnblocksMap()
+
 	// Calculate max unblocks for normalization
 	maxUnblocks := 0
 	for _, unblocks := range unblocksMap {
@@ -1152,14 +1102,10 @@ func computeTriageScoresFromImpact(baseScores []ImpactScore, unblocksMap map[str
 		}
 	}
 
-	// Precompute blocker depths once per triage run.
-	// GetBlockerDepth allocates per call; in triage scoring we call it O(N) times.
-	blockerDepths := computeBlockerDepths(analyzer, baseScores)
-
 	// Build triage scores
 	triageScores := make([]TriageScore, 0, len(baseScores))
 	for _, base := range baseScores {
-		ts := computeSingleTriageScore(base, unblocksMap, maxUnblocks, analyzer, opts, blockerDepths[base.IssueID])
+		ts := computeSingleTriageScore(base, unblocksMap, maxUnblocks, triageCtx.Analyzer(), opts, triageCtx.BlockerDepth(base.IssueID))
 		triageScores = append(triageScores, ts)
 	}
 
@@ -1238,52 +1184,6 @@ func computeSingleTriageScore(base ImpactScore, unblocksMap map[string][]string,
 		Priority:       base.Priority,
 		Status:         base.Status,
 	}
-}
-
-func computeBlockerDepths(analyzer *Analyzer, baseScores []ImpactScore) map[string]int {
-	memo := make(map[string]int, len(baseScores))
-	visited := make(map[string]bool, len(baseScores))
-
-	var dfs func(issueID string) int
-	dfs = func(issueID string) int {
-		if val, ok := memo[issueID]; ok {
-			return val
-		}
-		if visited[issueID] {
-			memo[issueID] = -1
-			return -1
-		}
-		visited[issueID] = true
-
-		blockers := analyzer.GetOpenBlockers(issueID)
-		if len(blockers) == 0 {
-			visited[issueID] = false
-			memo[issueID] = 0
-			return 0
-		}
-
-		maxChain := 0
-		for _, blockerID := range blockers {
-			depth := dfs(blockerID)
-			if depth == -1 {
-				visited[issueID] = false
-				memo[issueID] = -1
-				return -1
-			}
-			if depth+1 > maxChain {
-				maxChain = depth + 1
-			}
-		}
-
-		visited[issueID] = false
-		memo[issueID] = maxChain
-		return maxChain
-	}
-
-	for _, base := range baseScores {
-		_ = dfs(base.IssueID)
-	}
-	return memo
 }
 
 // GetBlockerDepth returns the depth of the blocker chain for an issue

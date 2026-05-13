@@ -17,9 +17,10 @@ import (
 type historyFocus int
 
 const (
-	historyFocusList   historyFocus = iota // Left pane (beads or commits)
-	historyFocusMiddle                     // Middle pane for 3-pane layout (bv-xrfh)
-	historyFocusDetail                     // Right pane (details)
+	historyFocusList     historyFocus = iota // Left pane (beads or commits)
+	historyFocusTimeline                     // Timeline pane for 4-pane layout
+	historyFocusMiddle                       // Middle pane for 3/4-pane layout (bv-xrfh)
+	historyFocusDetail                       // Right pane (details)
 )
 
 // historyLayout tracks the responsive layout mode (bv-xrfh)
@@ -344,6 +345,15 @@ func (h *HistoryModel) rebuildFilteredList() {
 func (h *HistoryModel) SetSize(width, height int) {
 	h.width = width
 	h.height = height
+
+	// Adjust focus if pane is lost due to resize
+	panes := h.paneCount()
+	if panes < 4 && h.focused == historyFocusTimeline {
+		h.focused = historyFocusList
+	}
+	if panes < 3 && h.focused == historyFocusMiddle {
+		h.focused = historyFocusList
+	}
 }
 
 // SetAuthorFilter sets the author filter and rebuilds the list
@@ -585,6 +595,10 @@ func (h *HistoryModel) MoveUp() {
 			h.middleScrollOffset = 0 // Reset middle scroll when changing bead (bv-xrfh)
 			h.ensureBeadVisible()
 		}
+	} else if h.focused == historyFocusTimeline {
+		if h.timelineScrollOffset > 0 {
+			h.timelineScrollOffset--
+		}
 	} else {
 		// In middle or detail pane, move to previous commit
 		if h.selectedCommit > 0 {
@@ -606,6 +620,24 @@ func (h *HistoryModel) MoveDown() {
 			h.middleScrollOffset = 0 // Reset middle scroll when changing bead (bv-xrfh)
 			h.ensureBeadVisible()
 		}
+	} else if h.focused == historyFocusTimeline {
+		if h.report != nil && h.selectedBead < len(h.beadIDs) {
+			beadID := h.beadIDs[h.selectedBead]
+			if hist, ok := h.report.Histories[beadID]; ok {
+				entries := h.buildTimeline(hist)
+				maxVisible := h.height - 8
+				if maxVisible < 3 {
+					maxVisible = 3
+				}
+				maxScroll := len(entries) - maxVisible
+				if maxScroll < 0 {
+					maxScroll = 0
+				}
+				if h.timelineScrollOffset < maxScroll {
+					h.timelineScrollOffset++
+				}
+			}
+		}
 	} else {
 		// In middle or detail pane, move to next commit
 		if h.selectedBead < len(h.histories) {
@@ -624,7 +656,19 @@ func (h *HistoryModel) MoveDown() {
 // ToggleFocus cycles through panes based on current layout (bv-xrfh)
 func (h *HistoryModel) ToggleFocus() {
 	panes := h.paneCount()
-	if panes == 3 {
+	if panes == 4 {
+		// Four-pane: List -> Timeline -> Middle -> Detail -> List
+		switch h.focused {
+		case historyFocusList:
+			h.focused = historyFocusTimeline
+		case historyFocusTimeline:
+			h.focused = historyFocusMiddle
+		case historyFocusMiddle:
+			h.focused = historyFocusDetail
+		default:
+			h.focused = historyFocusList
+		}
+	} else if panes == 3 {
 		// Three-pane: List -> Middle -> Detail -> List
 		switch h.focused {
 		case historyFocusList:
@@ -1045,6 +1089,10 @@ func (h *HistoryModel) buildCommitList() {
 	// Sort by timestamp descending (most recent first)
 	// Note: We parse from formatted string since we stored it that way
 	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].Timestamp == entries[j].Timestamp {
+			// Deterministic fallback for commits in same minute
+			return entries[i].SHA > entries[j].SHA
+		}
 		return entries[i].Timestamp > entries[j].Timestamp
 	})
 
@@ -1249,7 +1297,11 @@ func (h *HistoryModel) determineLayout() historyLayout {
 
 // paneCount returns the number of visible panes for the current layout (bv-xrfh)
 func (h *HistoryModel) paneCount() int {
-	switch h.determineLayout() {
+	layout := h.determineLayout()
+	if layout == layoutWide && h.viewMode != historyModeGit {
+		return 4
+	}
+	switch layout {
 	case layoutNarrow:
 		return 2
 	case layoutStandard, layoutWide:
@@ -1487,6 +1539,9 @@ func (h *HistoryModel) renderTimelinePanel(width, height int) string {
 
 	// Panel border style
 	borderColor := t.Border
+	if h.focused == historyFocusTimeline {
+		borderColor = t.Primary
+	}
 	panelStyle := r.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(borderColor).

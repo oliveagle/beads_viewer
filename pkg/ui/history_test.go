@@ -883,10 +883,16 @@ func TestHistoryModel_PaneCount(t *testing.T) {
 		t.Errorf("paneCount() at standard width = %d, want 3", h.paneCount())
 	}
 
-	// Wide width = 3 panes
+	// Wide non-git history view = 4 panes
 	h.SetSize(160, 40)
+	if h.paneCount() != 4 {
+		t.Errorf("paneCount() at wide width = %d, want 4", h.paneCount())
+	}
+
+	// Wide git view keeps the 3-pane commit layout
+	h.viewMode = historyModeGit
 	if h.paneCount() != 3 {
-		t.Errorf("paneCount() at wide width = %d, want 3", h.paneCount())
+		t.Errorf("paneCount() at wide width in git mode = %d, want 3", h.paneCount())
 	}
 }
 
@@ -919,6 +925,38 @@ func TestHistoryModel_ToggleFocusThreePane(t *testing.T) {
 	h.ToggleFocus()
 	if h.focused != historyFocusList {
 		t.Errorf("focus after third toggle = %d, want historyFocusList", h.focused)
+	}
+}
+
+func TestHistoryModel_ToggleFocusFourPane(t *testing.T) {
+	report := createTestHistoryReport()
+	theme := testTheme()
+	h := NewHistoryModel(report, theme)
+
+	h.SetSize(160, 40)
+
+	if h.focused != historyFocusList {
+		t.Errorf("initial focus = %d, want historyFocusList", h.focused)
+	}
+
+	h.ToggleFocus()
+	if h.focused != historyFocusTimeline {
+		t.Errorf("focus after first toggle = %d, want historyFocusTimeline", h.focused)
+	}
+
+	h.ToggleFocus()
+	if h.focused != historyFocusMiddle {
+		t.Errorf("focus after second toggle = %d, want historyFocusMiddle", h.focused)
+	}
+
+	h.ToggleFocus()
+	if h.focused != historyFocusDetail {
+		t.Errorf("focus after third toggle = %d, want historyFocusDetail", h.focused)
+	}
+
+	h.ToggleFocus()
+	if h.focused != historyFocusList {
+		t.Errorf("focus after fourth toggle = %d, want historyFocusList", h.focused)
 	}
 }
 

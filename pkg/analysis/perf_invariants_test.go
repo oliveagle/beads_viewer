@@ -141,7 +141,10 @@ func TestBuildUnblocksMap_MatchesReference(t *testing.T) {
 	}
 
 	analyzer := NewAnalyzer(issues)
-	got := buildUnblocksMap(analyzer)
+	triageCtx := NewTriageContext(analyzer)
+
+	// Build map using the optimized path
+	got := buildUnblocksMap(triageCtx)
 	want := referenceUnblocksMap(issues)
 
 	// Sanity-check the reference expectations (guards the guardrail).

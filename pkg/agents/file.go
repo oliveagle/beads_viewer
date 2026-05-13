@@ -105,19 +105,18 @@ func atomicWrite(filePath string, content []byte) error {
 	success := false
 	defer func() {
 		if !success {
+			tmp.Close()
 			os.Remove(tmpPath)
 		}
 	}()
 
 	// Write content
 	if _, err := tmp.Write(content); err != nil {
-		tmp.Close()
 		return fmt.Errorf("write temp file: %w", err)
 	}
 
 	// Ensure data is flushed to disk
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
 		return fmt.Errorf("sync temp file: %w", err)
 	}
 

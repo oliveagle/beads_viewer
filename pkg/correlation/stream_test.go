@@ -27,19 +27,23 @@ func TestNewStreamExtractor(t *testing.T) {
 
 func TestNewStreamExtractorPrefersCanonicalBeadsJSONL(t *testing.T) {
 	repoPath := t.TempDir()
-	beadsDir := filepath.Join(repoPath, ".beads")
-	if err := os.MkdirAll(beadsDir, 0o755); err != nil {
-		t.Fatal(err)
+	writeHistorySelectionFiles(t, repoPath)
+
+	s := NewStreamExtractor(repoPath)
+	if got, want := s.primaryBeadsFile(), ".beads/beads.jsonl"; got != want {
+		t.Fatalf("primaryBeadsFile = %s, want %s", got, want)
 	}
-	if err := os.WriteFile(filepath.Join(beadsDir, "issues.jsonl"), []byte(`{"id":"legacy"}`+"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(beadsDir, "beads.jsonl"), []byte(`{"id":"canonical"}`+"\n"), 0o644); err != nil {
+}
+
+func TestNewStreamExtractorPrefersBDCompatibilityIssuesJSONL(t *testing.T) {
+	repoPath := t.TempDir()
+	beadsDir := writeHistorySelectionFiles(t, repoPath)
+	if err := os.MkdirAll(filepath.Join(beadsDir, "dolt"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	s := NewStreamExtractor(repoPath)
-	if got, want := s.primaryBeadsFile(), ".beads/beads.jsonl"; got != want {
+	if got, want := s.primaryBeadsFile(), ".beads/issues.jsonl"; got != want {
 		t.Fatalf("primaryBeadsFile = %s, want %s", got, want)
 	}
 }

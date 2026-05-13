@@ -531,8 +531,9 @@ func TestNewExtractor(t *testing.T) {
 	}
 }
 
-func TestNewExtractorPrefersCanonicalBeadsJSONL(t *testing.T) {
-	repoPath := t.TempDir()
+func writeHistorySelectionFiles(t *testing.T, repoPath string) string {
+	t.Helper()
+
 	beadsDir := filepath.Join(repoPath, ".beads")
 	if err := os.MkdirAll(beadsDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -543,10 +544,46 @@ func TestNewExtractorPrefersCanonicalBeadsJSONL(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(beadsDir, "beads.jsonl"), []byte(`{"id":"canonical"}`+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	return beadsDir
+}
+
+func TestNewExtractorPrefersCanonicalBeadsJSONL(t *testing.T) {
+	repoPath := t.TempDir()
+	writeHistorySelectionFiles(t, repoPath)
 
 	e := NewExtractor(repoPath, "")
 	if got, want := e.primaryBeadsFile(), ".beads/beads.jsonl"; got != want {
 		t.Fatalf("primaryBeadsFile = %s, want %s", got, want)
+	}
+}
+
+func TestNewExtractorPrefersBDCompatibilityIssuesJSONL(t *testing.T) {
+	repoPath := t.TempDir()
+	beadsDir := writeHistorySelectionFiles(t, repoPath)
+	if err := os.MkdirAll(filepath.Join(beadsDir, "dolt"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	e := NewExtractor(repoPath, "")
+	if got, want := e.primaryBeadsFile(), ".beads/issues.jsonl"; got != want {
+		t.Fatalf("primaryBeadsFile = %s, want %s", got, want)
+	}
+}
+
+func TestPickBeadsFilesDoesNotInjectBDCompatibilityCandidate(t *testing.T) {
+	repoPath := t.TempDir()
+	beadsDir := filepath.Join(repoPath, ".beads")
+	if err := os.MkdirAll(filepath.Join(beadsDir, "dolt"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	candidates := []string{".beads/beads.jsonl"}
+	got := pickBeadsFiles(repoPath, candidates)
+	if len(got) != len(candidates) {
+		t.Fatalf("pickBeadsFiles injected candidates: got %#v, want %#v", got, candidates)
+	}
+	if got[0] != candidates[0] {
+		t.Fatalf("pickBeadsFiles = %#v, want %#v", got, candidates)
 	}
 }
 

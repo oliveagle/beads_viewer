@@ -2,6 +2,8 @@ package correlation
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -304,8 +306,8 @@ func TestBuildGitLogArgs(t *testing.T) {
 	t.Run("basic args", func(t *testing.T) {
 		args := e.buildGitLogArgs(ExtractOptions{})
 
-		// Should contain -p and --format
-		// Note: --follow was removed because it requires exactly one pathspec
+		// Should contain -p and --format; --follow is valid because the
+		// extractor appends exactly one primary beads pathspec.
 		foundP := false
 		for _, arg := range args {
 			if arg == "-p" {
@@ -526,6 +528,25 @@ func TestNewExtractor(t *testing.T) {
 	}
 	if len(e.beadsFiles) == 0 {
 		t.Error("beadsFiles should not be empty")
+	}
+}
+
+func TestNewExtractorPrefersCanonicalBeadsJSONL(t *testing.T) {
+	repoPath := t.TempDir()
+	beadsDir := filepath.Join(repoPath, ".beads")
+	if err := os.MkdirAll(beadsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(beadsDir, "issues.jsonl"), []byte(`{"id":"legacy"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(beadsDir, "beads.jsonl"), []byte(`{"id":"canonical"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	e := NewExtractor(repoPath, "")
+	if got, want := e.primaryBeadsFile(), ".beads/beads.jsonl"; got != want {
+		t.Fatalf("primaryBeadsFile = %s, want %s", got, want)
 	}
 }
 

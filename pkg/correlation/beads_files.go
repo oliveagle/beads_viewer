@@ -6,8 +6,11 @@ import (
 )
 
 var defaultBeadsFiles = []string{
-	".beads/issues.jsonl",
+	// Match the loader's regular-workspace JSONL priority so history follows
+	// the same canonical file as live issue loading when callers do not pass
+	// an explicit beads path.
 	".beads/beads.jsonl",
+	".beads/issues.jsonl",
 	".beads/beads.base.jsonl",
 }
 

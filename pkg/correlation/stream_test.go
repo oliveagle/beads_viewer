@@ -1,6 +1,8 @@
 package correlation
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +22,25 @@ func TestNewStreamExtractor(t *testing.T) {
 	}
 	if len(s.beadsFiles) == 0 {
 		t.Error("beadsFiles should not be empty")
+	}
+}
+
+func TestNewStreamExtractorPrefersCanonicalBeadsJSONL(t *testing.T) {
+	repoPath := t.TempDir()
+	beadsDir := filepath.Join(repoPath, ".beads")
+	if err := os.MkdirAll(beadsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(beadsDir, "issues.jsonl"), []byte(`{"id":"legacy"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(beadsDir, "beads.jsonl"), []byte(`{"id":"canonical"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewStreamExtractor(repoPath)
+	if got, want := s.primaryBeadsFile(), ".beads/beads.jsonl"; got != want {
+		t.Fatalf("primaryBeadsFile = %s, want %s", got, want)
 	}
 }
 

@@ -1,6 +1,7 @@
 package correlation
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -33,6 +34,42 @@ func TestNewIncrementalCorrelatorWithOptions(t *testing.T) {
 	}
 	if ic.cache.maxSize != 20 {
 		t.Errorf("maxSize = %d, want 20", ic.cache.maxSize)
+	}
+}
+
+func TestNewIncrementalCorrelatorForwardsExplicitBeadsPath(t *testing.T) {
+	repoPath := "/tmp/test"
+	explicitPath := filepath.Join(repoPath, ".beads", "custom.jsonl")
+	expectedPath := filepath.Join(".beads", "custom.jsonl")
+
+	ic := NewIncrementalCorrelator(repoPath, explicitPath)
+
+	if got := ic.correlator.extractor.primaryBeadsFile(); got != expectedPath {
+		t.Errorf("primaryBeadsFile = %q, want %q", got, expectedPath)
+	}
+}
+
+func TestNewIncrementalCorrelatorWithOptionsForwardsExplicitBeadsPath(t *testing.T) {
+	repoPath := "/tmp/test"
+	explicitPath := filepath.Join(repoPath, ".beads", "custom.jsonl")
+	expectedPath := filepath.Join(".beads", "custom.jsonl")
+
+	ic := NewIncrementalCorrelatorWithOptions(repoPath, 10*time.Minute, 20, explicitPath)
+
+	if got := ic.correlator.extractor.primaryBeadsFile(); got != expectedPath {
+		t.Errorf("primaryBeadsFile = %q, want %q", got, expectedPath)
+	}
+}
+
+func TestIncrementalCorrelatorUsesConfiguredExtractorForUpdates(t *testing.T) {
+	repoPath := "/tmp/test"
+	explicitPath := filepath.Join(repoPath, ".beads", "custom.jsonl")
+	expectedPath := filepath.Join(".beads", "custom.jsonl")
+
+	ic := NewIncrementalCorrelator(repoPath, explicitPath)
+
+	if got := ic.incrementalExtractor().primaryBeadsFile(); got != expectedPath {
+		t.Errorf("incremental extractor primaryBeadsFile = %q, want %q", got, expectedPath)
 	}
 }
 

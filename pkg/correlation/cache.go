@@ -363,9 +363,10 @@ type CachedCorrelator struct {
 	mu               sync.Mutex
 }
 
-// NewCachedCorrelator creates a correlator with caching enabled
-func NewCachedCorrelator(repoPath string) *CachedCorrelator {
-	correlator := NewCorrelator(repoPath)
+// NewCachedCorrelator creates a correlator with caching enabled.
+// beadsFilePath is optional and forwarded to the underlying correlator.
+func NewCachedCorrelator(repoPath string, beadsFilePath ...string) *CachedCorrelator {
+	correlator := NewCorrelator(repoPath, beadsFilePath...)
 	return &CachedCorrelator{
 		correlator:       correlator,
 		cache:            NewHistoryCache(repoPath),
@@ -374,9 +375,10 @@ func NewCachedCorrelator(repoPath string) *CachedCorrelator {
 	}
 }
 
-// NewCachedCorrelatorWithOptions creates a correlator with custom cache settings
-func NewCachedCorrelatorWithOptions(repoPath string, maxAge time.Duration, maxSize int) *CachedCorrelator {
-	correlator := NewCorrelator(repoPath)
+// NewCachedCorrelatorWithOptions creates a correlator with custom cache settings.
+// beadsFilePath is optional and forwarded to the underlying correlator.
+func NewCachedCorrelatorWithOptions(repoPath string, maxAge time.Duration, maxSize int, beadsFilePath ...string) *CachedCorrelator {
+	correlator := NewCorrelator(repoPath, beadsFilePath...)
 	return &CachedCorrelator{
 		correlator:       correlator,
 		cache:            NewHistoryCacheWithOptions(repoPath, maxAge, maxSize),

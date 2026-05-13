@@ -36,18 +36,20 @@ type IncrementalCorrelator struct {
 	mu         sync.Mutex
 }
 
-// NewIncrementalCorrelator creates a correlator with incremental update support
-func NewIncrementalCorrelator(repoPath string) *IncrementalCorrelator {
+// NewIncrementalCorrelator creates a correlator with incremental update support.
+// beadsFilePath is optional and forwarded to the underlying correlator.
+func NewIncrementalCorrelator(repoPath string, beadsFilePath ...string) *IncrementalCorrelator {
 	return &IncrementalCorrelator{
-		correlator: NewCorrelator(repoPath),
+		correlator: NewCorrelator(repoPath, beadsFilePath...),
 		cache:      NewHistoryCache(repoPath),
 	}
 }
 
-// NewIncrementalCorrelatorWithOptions creates a correlator with custom cache settings
-func NewIncrementalCorrelatorWithOptions(repoPath string, maxAge time.Duration, maxSize int) *IncrementalCorrelator {
+// NewIncrementalCorrelatorWithOptions creates a correlator with custom cache settings.
+// beadsFilePath is optional and forwarded to the underlying correlator.
+func NewIncrementalCorrelatorWithOptions(repoPath string, maxAge time.Duration, maxSize int, beadsFilePath ...string) *IncrementalCorrelator {
 	return &IncrementalCorrelator{
-		correlator: NewCorrelator(repoPath),
+		correlator: NewCorrelator(repoPath, beadsFilePath...),
 		cache:      NewHistoryCacheWithOptions(repoPath, maxAge, maxSize),
 	}
 }
@@ -164,8 +166,7 @@ func (ic *IncrementalCorrelator) tryIncrementalUpdate(existing *HistoryReport, b
 		}, nil
 	}
 
-	// Extract events from new commits only
-	extractor := NewExtractor(ic.cache.repoPath, "")
+	extractor := ic.incrementalExtractor()
 	newEvents, err := extractEventsFromCommits(extractor, newCommits, opts.BeadID)
 	if err != nil {
 		return nil, fmt.Errorf("extracting new events: %w", err)
@@ -188,6 +189,18 @@ func (ic *IncrementalCorrelator) tryIncrementalUpdate(existing *HistoryReport, b
 		MergedEventCount:  len(newEvents),
 		MergedCommitCount: len(newCorrelatedCommits),
 	}, nil
+}
+
+func (ic *IncrementalCorrelator) incrementalExtractor() *Extractor {
+	if ic.correlator != nil && ic.correlator.extractor != nil {
+		return ic.correlator.extractor
+	}
+
+	repoPath := ""
+	if ic.cache != nil {
+		repoPath = ic.cache.repoPath
+	}
+	return NewExtractor(repoPath)
 }
 
 // getCommitsSince returns commit SHAs since the given commit (exclusive)

@@ -463,6 +463,30 @@ func TestNewCachedCorrelatorWithOptions(t *testing.T) {
 	}
 }
 
+func TestNewCachedCorrelatorForwardsExplicitBeadsPath(t *testing.T) {
+	repoPath := "/tmp/test"
+	explicitPath := filepath.Join(repoPath, ".beads", "custom.jsonl")
+	expectedPath := filepath.Join(".beads", "custom.jsonl")
+
+	correlator := NewCachedCorrelator(repoPath, explicitPath)
+
+	if got := correlator.correlator.extractor.primaryBeadsFile(); got != expectedPath {
+		t.Errorf("primaryBeadsFile = %q, want %q", got, expectedPath)
+	}
+}
+
+func TestNewCachedCorrelatorWithOptionsForwardsExplicitBeadsPath(t *testing.T) {
+	repoPath := "/tmp/test"
+	explicitPath := filepath.Join(repoPath, ".beads", "custom.jsonl")
+	expectedPath := filepath.Join(".beads", "custom.jsonl")
+
+	correlator := NewCachedCorrelatorWithOptions(repoPath, 10*time.Minute, 20, explicitPath)
+
+	if got := correlator.correlator.extractor.primaryBeadsFile(); got != expectedPath {
+		t.Errorf("primaryBeadsFile = %q, want %q", got, expectedPath)
+	}
+}
+
 func TestCachedCorrelator_Singleflight(t *testing.T) {
 	// Skip if not in a git repo
 	if _, err := getGitHead("."); err != nil {

@@ -905,9 +905,9 @@ func TestBackgroundWorker_BuildSnapshotDoesNotPublishHashBeforeSwap(t *testing.T
 		t.Fatalf("Failed to write changed test file: %v", err)
 	}
 
-	worker.mu.Lock()
-	worker.forceNext = true
-	worker.mu.Unlock()
+	mutateWorkerForTest(worker, func() {
+		worker.forceNext = true
+	})
 
 	unaccepted := worker.buildSnapshot(false)
 	if unaccepted == nil {
@@ -1444,6 +1444,12 @@ func workerStateAndDirty(worker *BackgroundWorker) (WorkerState, bool) {
 	return worker.state, worker.dirty
 }
 
+func mutateWorkerForTest(worker *BackgroundWorker, fn func()) {
+	worker.mu.Lock()
+	defer worker.mu.Unlock()
+	fn()
+}
+
 func TestBackgroundWorker_MalformedJSON_WarnsAndContinues(t *testing.T) {
 	tmpDir := t.TempDir()
 	beadsPath := filepath.Join(tmpDir, "beads.jsonl")
@@ -1643,9 +1649,9 @@ func TestBackgroundWorker_CheckHealth_TriggersRecoveryOnMissedHeartbeat(t *testi
 		t.Fatalf("Start failed: %v", err)
 	}
 
-	worker.mu.Lock()
-	worker.lastHeartbeat = time.Now().Add(-time.Second)
-	worker.mu.Unlock()
+	mutateWorkerForTest(worker, func() {
+		worker.lastHeartbeat = time.Now().Add(-time.Second)
+	})
 
 	worker.checkHealth(time.Now())
 
@@ -1725,9 +1731,9 @@ func TestBackgroundWorker_MaybeIdleGC_DoesNotRunWhenProcessing(t *testing.T) {
 	now := time.Now()
 	worker.recordActivityAt(now.Add(-10 * time.Second))
 
-	worker.mu.Lock()
-	worker.state = WorkerProcessing
-	worker.mu.Unlock()
+	mutateWorkerForTest(worker, func() {
+		worker.state = WorkerProcessing
+	})
 
 	worker.maybeIdleGC(now)
 	if gcCalls != 0 {

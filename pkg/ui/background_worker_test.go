@@ -1204,6 +1204,37 @@ func TestBackgroundWorker_ConcurrentTrigger(t *testing.T) {
 	}
 }
 
+func TestBackgroundWorker_TriggerRefreshCoalescesWhileProcessScheduled(t *testing.T) {
+	worker, err := NewBackgroundWorker(WorkerConfig{BeadsPath: ""})
+	if err != nil {
+		t.Fatalf("NewBackgroundWorker failed: %v", err)
+	}
+	defer worker.Stop()
+
+	mutateWorkerForTest(worker, func() {
+		worker.processScheduled = true
+	})
+
+	worker.TriggerRefresh()
+
+	state, dirty, scheduled := workerStateFlags(worker)
+	if state != WorkerIdle {
+		t.Fatalf("state=%v, want %v", state, WorkerIdle)
+	}
+	if !scheduled {
+		t.Fatal("expected existing scheduled process to remain scheduled")
+	}
+	if !dirty {
+		t.Fatal("expected refresh to mark worker dirty while process is scheduled")
+	}
+	if got := worker.coalesceCount.Load(); got != 1 {
+		t.Fatalf("coalesceCount=%d, want 1", got)
+	}
+	if got := worker.Metrics().ProcessingCount; got != 0 {
+		t.Fatalf("ProcessingCount=%d, want 0", got)
+	}
+}
+
 func TestBackgroundWorker_Phase2Async(t *testing.T) {
 	// Test that Phase 2 analysis runs asynchronously (bv-e3ub)
 	tmpDir := t.TempDir()
@@ -1419,29 +1450,30 @@ func waitForWorkerIdle(t *testing.T, worker *BackgroundWorker, minProcessingCoun
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		metrics := worker.Metrics()
-		state, dirty := workerStateAndDirty(worker)
-		if state == WorkerIdle && !dirty && metrics.ProcessingCount >= minProcessingCount {
+		state, dirty, scheduled := workerStateFlags(worker)
+		if state == WorkerIdle && !dirty && !scheduled && metrics.ProcessingCount >= minProcessingCount {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 
 	metrics := worker.Metrics()
-	state, dirty := workerStateAndDirty(worker)
+	state, dirty, scheduled := workerStateFlags(worker)
 	t.Fatalf(
-		"timeout waiting for idle worker after %d processes (state=%v dirty=%v processes=%d snapshots=%d)",
+		"timeout waiting for idle worker after %d processes (state=%v dirty=%v scheduled=%v processes=%d snapshots=%d)",
 		minProcessingCount,
 		state,
 		dirty,
+		scheduled,
 		metrics.ProcessingCount,
 		metrics.SnapshotVersion,
 	)
 }
 
-func workerStateAndDirty(worker *BackgroundWorker) (WorkerState, bool) {
+func workerStateFlags(worker *BackgroundWorker) (WorkerState, bool, bool) {
 	worker.mu.RLock()
 	defer worker.mu.RUnlock()
-	return worker.state, worker.dirty
+	return worker.state, worker.dirty, worker.processScheduled
 }
 
 func mutateWorkerForTest(worker *BackgroundWorker, fn func()) {

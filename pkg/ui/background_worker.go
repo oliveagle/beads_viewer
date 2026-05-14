@@ -178,6 +178,7 @@ type BackgroundWorker struct {
 	mu                sync.RWMutex
 	state             WorkerState
 	dirty             bool // True if a change came in while processing
+	processScheduled  bool // True after process() is queued but before it starts processing
 	snapshot          *DataSnapshot
 	started           bool // True if Start() has been called
 	watchdogStarted   bool
@@ -611,6 +612,7 @@ func (w *BackgroundWorker) Stop() {
 		return
 	}
 	w.state = WorkerStopped
+	w.processScheduled = false
 	wasStarted := w.started
 	loopCancel := w.loopCancel
 	done := w.done
@@ -793,6 +795,7 @@ func (w *BackgroundWorker) attemptRecovery(reason string) {
 	w.generation++
 	w.state = WorkerIdle
 	w.dirty = false
+	w.processScheduled = false
 	w.processingStart = time.Time{}
 	w.lastHeartbeat = time.Now()
 
@@ -850,14 +853,15 @@ func (w *BackgroundWorker) attemptRecovery(reason string) {
 }
 
 // TriggerRefresh manually triggers a refresh of the data.
-// Has no effect if the worker is stopped or already processing.
+// Has no effect if the worker is stopped. Concurrent refresh requests are
+// coalesced while processing is active or already scheduled.
 func (w *BackgroundWorker) TriggerRefresh() {
 	w.mu.Lock()
 	if w.state == WorkerStopped {
 		w.mu.Unlock()
 		return
 	}
-	if w.state == WorkerProcessing {
+	if w.state == WorkerProcessing || w.processScheduled {
 		w.dirty = true
 		coalesced := w.coalesceCount.Add(1)
 		w.logEvent(LogLevelDebug, "coalesce", map[string]any{
@@ -866,6 +870,7 @@ func (w *BackgroundWorker) TriggerRefresh() {
 		w.mu.Unlock()
 		return
 	}
+	w.processScheduled = true
 	w.mu.Unlock()
 
 	// Trigger processing
@@ -883,7 +888,7 @@ func (w *BackgroundWorker) ForceRefresh() {
 
 	w.forceNext = true
 
-	if w.state == WorkerProcessing {
+	if w.state == WorkerProcessing || w.processScheduled {
 		w.dirty = true
 		coalesced := w.coalesceCount.Add(1)
 		w.logEvent(LogLevelDebug, "coalesce", map[string]any{
@@ -892,6 +897,7 @@ func (w *BackgroundWorker) ForceRefresh() {
 		w.mu.Unlock()
 		return
 	}
+	w.processScheduled = true
 	w.mu.Unlock()
 
 	go w.process()
@@ -1006,6 +1012,7 @@ func (w *BackgroundWorker) processLoop(loopCtx context.Context, done chan struct
 // process builds a new snapshot from the current file.
 func (w *BackgroundWorker) process() {
 	w.mu.Lock()
+	w.processScheduled = false
 	if w.state != WorkerIdle {
 		// Already stopped or processing
 		if w.state == WorkerProcessing {
@@ -1121,7 +1128,7 @@ func (w *BackgroundWorker) process() {
 
 	// If dirty, process again immediately
 	if wasDirty {
-		go w.process()
+		w.TriggerRefresh()
 	}
 }
 
@@ -1241,17 +1248,18 @@ func (w *BackgroundWorker) maybeIdleGC(now time.Time) {
 	w.mu.Lock()
 	enabled := w.idleGCEnabled
 	state := w.state
+	processScheduled := w.processScheduled
 	threshold := w.idleGCThreshold
 	minInterval := w.idleGCMinInterval
 	w.mu.Unlock()
 
-	if !enabled || state != WorkerIdle {
+	if !enabled || state != WorkerIdle || processScheduled {
 		return
 	}
 
 	w.mu.Lock()
 	// Re-check under lock for correctness and to prevent racing with process() state transitions.
-	if !w.idleGCEnabled || w.state != WorkerIdle {
+	if !w.idleGCEnabled || w.state != WorkerIdle || w.processScheduled {
 		w.mu.Unlock()
 		return
 	}

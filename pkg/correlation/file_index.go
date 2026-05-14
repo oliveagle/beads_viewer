@@ -198,6 +198,8 @@ func (fl *FileLookup) LookupByFile(path string) *FileBeadLookupResult {
 
 	// Try prefix match for directory lookups
 	// Note: normalizePath converts all backslashes to forward slashes, so we only need to check "/"
+	openRefs := make(map[string]BeadReference)
+	closedRefs := make(map[string]BeadReference)
 	for filePath, refs := range fl.index.FileToBeads {
 		if strings.HasPrefix(filePath, normalizedPath+"/") {
 			for _, ref := range refs {
@@ -214,20 +216,17 @@ func (fl *FileLookup) LookupByFile(path string) *FileBeadLookupResult {
 					continue
 				}
 
-				// Avoid duplicates across files in directory
 				if bucket == "closed" {
-					if !containsBeadRef(result.ClosedBeads, ref.BeadID) {
-						result.ClosedBeads = append(result.ClosedBeads, ref)
-					}
+					accumulateBeadReference(closedRefs, ref)
 				} else {
-					if !containsBeadRef(result.OpenBeads, ref.BeadID) {
-						result.OpenBeads = append(result.OpenBeads, ref)
-					}
+					accumulateBeadReference(openRefs, ref)
 				}
 			}
 		}
 	}
 
+	result.OpenBeads = beadReferencesFromMap(openRefs)
+	result.ClosedBeads = beadReferencesFromMap(closedRefs)
 	sortBeadRefs(result.OpenBeads)
 	sortBeadRefs(result.ClosedBeads)
 	result.TotalBeads = len(result.OpenBeads) + len(result.ClosedBeads)
@@ -242,9 +241,8 @@ func (fl *FileLookup) LookupByFileGlob(pattern string) *FileBeadLookupResult {
 		ClosedBeads: []BeadReference{},
 	}
 
-	// Track seen beads to avoid duplicates
-	seenOpen := make(map[string]bool)
-	seenClosed := make(map[string]bool)
+	openRefs := make(map[string]BeadReference)
+	closedRefs := make(map[string]BeadReference)
 
 	for filePath, refs := range fl.index.FileToBeads {
 		matched, err := filepath.Match(pattern, filePath)
@@ -266,19 +264,15 @@ func (fl *FileLookup) LookupByFileGlob(pattern string) *FileBeadLookupResult {
 				continue
 			}
 			if bucket == "closed" {
-				if !seenClosed[ref.BeadID] {
-					result.ClosedBeads = append(result.ClosedBeads, ref)
-					seenClosed[ref.BeadID] = true
-				}
+				accumulateBeadReference(closedRefs, ref)
 			} else {
-				if !seenOpen[ref.BeadID] {
-					result.OpenBeads = append(result.OpenBeads, ref)
-					seenOpen[ref.BeadID] = true
-				}
+				accumulateBeadReference(openRefs, ref)
 			}
 		}
 	}
 
+	result.OpenBeads = beadReferencesFromMap(openRefs)
+	result.ClosedBeads = beadReferencesFromMap(closedRefs)
 	sortBeadRefs(result.OpenBeads)
 	sortBeadRefs(result.ClosedBeads)
 	result.TotalBeads = len(result.OpenBeads) + len(result.ClosedBeads)
@@ -771,14 +765,36 @@ func sortBeadRefs(refs []BeadReference) {
 	})
 }
 
-// containsBeadRef checks if a slice contains a bead reference with the given ID.
-func containsBeadRef(refs []BeadReference, beadID string) bool {
-	for _, ref := range refs {
-		if ref.BeadID == beadID {
-			return true
-		}
+func accumulateBeadReference(refs map[string]BeadReference, ref BeadReference) {
+	existing, ok := refs[ref.BeadID]
+	if !ok {
+		ref.CommitSHAs = append([]string(nil), ref.CommitSHAs...)
+		refs[ref.BeadID] = ref
+		return
 	}
-	return false
+
+	if ref.Title != "" {
+		existing.Title = ref.Title
+	}
+	if ref.Status != "" {
+		existing.Status = ref.Status
+	}
+	for _, sha := range ref.CommitSHAs {
+		existing.CommitSHAs = appendUnique(existing.CommitSHAs, sha)
+	}
+	if ref.LastTouch.After(existing.LastTouch) {
+		existing.LastTouch = ref.LastTouch
+	}
+	existing.TotalChanges += ref.TotalChanges
+	refs[ref.BeadID] = existing
+}
+
+func beadReferencesFromMap(refs map[string]BeadReference) []BeadReference {
+	out := make([]BeadReference, 0, len(refs))
+	for _, ref := range refs {
+		out = append(out, ref)
+	}
+	return out
 }
 
 // pluralize returns the singular or plural form of a word based on count.

@@ -1,9 +1,23 @@
 package correlation
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
+
+func stringMatches(got, want string) bool {
+	return strings.Compare(got, want) == 0
+}
+
+func hasStringValue(values []string, want string) bool {
+	for _, value := range values {
+		if stringMatches(value, want) {
+			return true
+		}
+	}
+	return false
+}
 
 func TestBuildFileIndex(t *testing.T) {
 	// Create a test history report
@@ -74,7 +88,7 @@ func TestBuildFileIndex(t *testing.T) {
 	// Verify bead references for token.go
 	var foundBv123, foundBv456 bool
 	for _, ref := range tokenRefs {
-		if ref.BeadID == "bv-123" {
+		if stringMatches(ref.BeadID, "bv-123") {
 			foundBv123 = true
 			if len(ref.CommitSHAs) != 2 {
 				t.Errorf("Expected 2 commits for bv-123, got %d", len(ref.CommitSHAs))
@@ -83,7 +97,7 @@ func TestBuildFileIndex(t *testing.T) {
 				t.Errorf("Expected 22 total changes for bv-123, got %d", ref.TotalChanges)
 			}
 		}
-		if ref.BeadID == "bv-456" {
+		if stringMatches(ref.BeadID, "bv-456") {
 			foundBv456 = true
 		}
 	}
@@ -275,10 +289,10 @@ func TestFileLookupByFile_ExcludesTombstone(t *testing.T) {
 	if result.TotalBeads != 2 {
 		t.Fatalf("Expected 2 total beads (tombstone excluded), got %d", result.TotalBeads)
 	}
-	if len(result.OpenBeads) != 1 || result.OpenBeads[0].BeadID != "bv-open" {
+	if len(result.OpenBeads) != 1 || !stringMatches(result.OpenBeads[0].BeadID, "bv-open") {
 		t.Fatalf("Expected open beads [bv-open], got %+v", result.OpenBeads)
 	}
-	if len(result.ClosedBeads) != 1 || result.ClosedBeads[0].BeadID != "bv-closed" {
+	if len(result.ClosedBeads) != 1 || !stringMatches(result.ClosedBeads[0].BeadID, "bv-closed") {
 		t.Fatalf("Expected closed beads [bv-closed], got %+v", result.ClosedBeads)
 	}
 }
@@ -329,7 +343,7 @@ func TestFileLookupByFileGlob_ExcludesTombstone(t *testing.T) {
 	if result.TotalBeads != 1 {
 		t.Fatalf("Expected 1 total bead (tombstone excluded), got %d", result.TotalBeads)
 	}
-	if len(result.OpenBeads) != 1 || result.OpenBeads[0].BeadID != "bv-open" {
+	if len(result.OpenBeads) != 1 || !stringMatches(result.OpenBeads[0].BeadID, "bv-open") {
 		t.Fatalf("Expected open beads [bv-open], got %+v", result.OpenBeads)
 	}
 	if len(result.ClosedBeads) != 0 {
@@ -386,7 +400,7 @@ func TestFileLookupByDirectory(t *testing.T) {
 	if result.TotalBeads != 1 {
 		t.Errorf("Expected 1 bead for pkg/auth directory, got %d", result.TotalBeads)
 	}
-	if len(result.OpenBeads) != 1 || result.OpenBeads[0].BeadID != "bv-123" {
+	if len(result.OpenBeads) != 1 || !stringMatches(result.OpenBeads[0].BeadID, "bv-123") {
 		t.Error("Expected bv-123 in open beads for pkg/auth")
 	}
 }
@@ -458,12 +472,92 @@ func TestFileLookupByDirectory_SortsByLastTouch(t *testing.T) {
 	}
 
 	// Sorted by LastTouch desc, then BeadID asc for ties.
-	if result.OpenBeads[0].BeadID != "bv-new" {
+	if !stringMatches(result.OpenBeads[0].BeadID, "bv-new") {
 		t.Fatalf("Expected first bead bv-new, got %s", result.OpenBeads[0].BeadID)
 	}
-	if result.OpenBeads[1].BeadID != "bv-a" || result.OpenBeads[2].BeadID != "bv-b" {
+	if !stringMatches(result.OpenBeads[1].BeadID, "bv-a") || !stringMatches(result.OpenBeads[2].BeadID, "bv-b") {
 		t.Fatalf("Expected tie-break order bv-a then bv-b, got %s, %s",
 			result.OpenBeads[1].BeadID, result.OpenBeads[2].BeadID)
+	}
+}
+
+func TestFileLookupAggregatesDuplicateBeadReferences(t *testing.T) {
+	now := time.Now()
+	older := now.Add(-2 * time.Hour)
+
+	report := &HistoryReport{
+		Histories: map[string]BeadHistory{
+			"bv-merge": {
+				BeadID: "bv-merge",
+				Title:  "Touches multiple files",
+				Status: "open",
+				Commits: []CorrelatedCommit{
+					{
+						SHA:       "older123",
+						ShortSHA:  "older123",
+						Timestamp: older,
+						Files: []FileChange{
+							{Path: "pkg/auth/token.go", Insertions: 3, Deletions: 2},
+						},
+					},
+					{
+						SHA:       "newer123",
+						ShortSHA:  "newer123",
+						Timestamp: now,
+						Files: []FileChange{
+							{Path: "pkg/auth/session.go", Insertions: 10, Deletions: 1},
+						},
+					},
+				},
+			},
+		},
+		CommitIndex: CommitIndex{
+			"older123": {"bv-merge"},
+			"newer123": {"bv-merge"},
+		},
+	}
+
+	lookup := NewFileLookup(report)
+
+	tests := []struct {
+		name   string
+		lookup func() *FileBeadLookupResult
+	}{
+		{
+			name: "directory",
+			lookup: func() *FileBeadLookupResult {
+				return lookup.LookupByFile("pkg/auth")
+			},
+		},
+		{
+			name: "glob",
+			lookup: func() *FileBeadLookupResult {
+				return lookup.LookupByFileGlob("pkg/auth/*.go")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.lookup()
+
+			if len(result.OpenBeads) != 1 {
+				t.Fatalf("Expected one merged open bead, got %+v", result.OpenBeads)
+			}
+			ref := result.OpenBeads[0]
+			if !stringMatches(ref.BeadID, "bv-merge") {
+				t.Fatalf("Expected merged bead bv-merge, got %s", ref.BeadID)
+			}
+			if !ref.LastTouch.Equal(now) {
+				t.Fatalf("Expected newest last touch %s, got %s", now, ref.LastTouch)
+			}
+			if ref.TotalChanges != 16 {
+				t.Fatalf("Expected summed changes 16, got %d", ref.TotalChanges)
+			}
+			if len(ref.CommitSHAs) != 2 || !hasStringValue(ref.CommitSHAs, "older123") || !hasStringValue(ref.CommitSHAs, "newer123") {
+				t.Fatalf("Expected both commit SHAs after merge, got %#v", ref.CommitSHAs)
+			}
+		})
 	}
 }
 
@@ -551,7 +645,7 @@ func TestFileLookupByGlob_SortsByLastTouch(t *testing.T) {
 	if len(result.OpenBeads) != 2 {
 		t.Fatalf("Expected 2 open beads, got %d", len(result.OpenBeads))
 	}
-	if result.OpenBeads[0].BeadID != "bv-new" || result.OpenBeads[1].BeadID != "bv-old" {
+	if !stringMatches(result.OpenBeads[0].BeadID, "bv-new") || !stringMatches(result.OpenBeads[1].BeadID, "bv-old") {
 		t.Fatalf("Expected order bv-new then bv-old, got %s then %s",
 			result.OpenBeads[0].BeadID, result.OpenBeads[1].BeadID)
 	}
@@ -616,7 +710,7 @@ func TestGetHotspots(t *testing.T) {
 	}
 
 	// hot.go should be first with 3 beads
-	if hotspots[0].FilePath != "hot.go" {
+	if !stringMatches(hotspots[0].FilePath, "hot.go") {
 		t.Errorf("Expected hot.go as top hotspot, got %s", hotspots[0].FilePath)
 	}
 	if hotspots[0].TotalBeads != 3 {
@@ -644,7 +738,7 @@ func TestNormalizePath(t *testing.T) {
 
 	for _, tt := range tests {
 		result := normalizePath(tt.input)
-		if result != tt.expected {
+		if !stringMatches(result, tt.expected) {
 			t.Errorf("normalizePath(%q) = %q, expected %q", tt.input, result, tt.expected)
 		}
 	}
@@ -685,7 +779,7 @@ func TestGetAllFiles(t *testing.T) {
 	// Should be sorted
 	expected := []string{"a.go", "b.go", "c.go"}
 	for i, f := range files {
-		if f != expected[i] {
+		if !stringMatches(f, expected[i]) {
 			t.Errorf("File %d: expected %q, got %q", i, expected[i], f)
 		}
 	}
@@ -694,7 +788,7 @@ func TestGetAllFiles(t *testing.T) {
 func TestImpactAnalysisEmpty(t *testing.T) {
 	lookup := NewFileLookup(nil)
 	result := lookup.ImpactAnalysis([]string{})
-	if result.Summary != "No files to analyze" {
+	if !stringMatches(result.Summary, "No files to analyze") {
 		t.Errorf("Expected 'No files to analyze', got %q", result.Summary)
 	}
 	if len(result.AffectedBeads) != 0 {
@@ -757,7 +851,7 @@ func TestImpactAnalysisWithOpenBeads(t *testing.T) {
 	result := lookup.ImpactAnalysis([]string{"auth/token.go"})
 
 	// Should have high risk due to in_progress bead
-	if result.RiskLevel != "high" && result.RiskLevel != "critical" {
+	if !stringMatches(result.RiskLevel, "high") && !stringMatches(result.RiskLevel, "critical") {
 		t.Errorf("Expected high or critical risk, got %q", result.RiskLevel)
 	}
 
@@ -767,7 +861,7 @@ func TestImpactAnalysisWithOpenBeads(t *testing.T) {
 	}
 
 	// in_progress should be first
-	if len(result.AffectedBeads) < 1 || result.AffectedBeads[0].Status != "in_progress" {
+	if len(result.AffectedBeads) < 1 || !stringMatches(result.AffectedBeads[0].Status, "in_progress") {
 		t.Error("Expected in_progress bead to be first")
 	}
 }
@@ -799,7 +893,7 @@ func TestImpactAnalysisRiskLevels(t *testing.T) {
 	result := lookup.ImpactAnalysis([]string{"old.go"})
 
 	// Should be low risk since the closed bead is > 7 days old
-	if result.RiskLevel != "low" {
+	if !stringMatches(result.RiskLevel, "low") {
 		t.Errorf("Expected low risk for old closed beads, got %q", result.RiskLevel)
 	}
 }
@@ -809,7 +903,7 @@ func TestImpactAnalysisEmptyStringsFiltered(t *testing.T) {
 
 	// Empty strings should be filtered out
 	result := lookup.ImpactAnalysis([]string{"", "  ", ""})
-	if result.Summary != "No valid files to analyze" {
+	if !stringMatches(result.Summary, "No valid files to analyze") {
 		t.Errorf("Expected 'No valid files to analyze' for empty strings, got %q", result.Summary)
 	}
 }
@@ -965,7 +1059,7 @@ func TestGetRelatedFiles(t *testing.T) {
 	// session.go should be related (4/5 = 0.8 correlation)
 	foundSession := false
 	for _, entry := range result.RelatedFiles {
-		if entry.FilePath == "auth/session.go" {
+		if stringMatches(entry.FilePath, "auth/session.go") {
 			foundSession = true
 			if entry.CoChangeCount != 4 {
 				t.Errorf("Expected 4 co-changes for session.go, got %d", entry.CoChangeCount)
@@ -982,7 +1076,7 @@ func TestGetRelatedFiles(t *testing.T) {
 
 	// config/auth.yaml should NOT be in results with 0.5 threshold (1/5 = 0.2 < 0.5)
 	for _, entry := range result.RelatedFiles {
-		if entry.FilePath == "config/auth.yaml" {
+		if stringMatches(entry.FilePath, "config/auth.yaml") {
 			t.Error("config/auth.yaml should not appear with 0.5 threshold (correlation is 0.2)")
 		}
 	}

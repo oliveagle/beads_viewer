@@ -3,6 +3,8 @@ package search
 import (
 	"sort"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 const shortQueryDocBoost = 0.35
@@ -17,7 +19,7 @@ func ShortQueryLexicalBoost(query string, doc string) float64 {
 	if needle == "" || doc == "" {
 		return 0
 	}
-	if strings.Contains(strings.ToLower(doc), needle) {
+	if shortQueryMatchesDocument(needle, strings.ToLower(doc)) {
 		return shortQueryDocBoost
 	}
 	return 0
@@ -56,4 +58,58 @@ func ApplyShortQueryLexicalBoost(results []SearchResult, query string, docs map[
 	}
 
 	return results
+}
+
+func shortQueryMatchesDocument(query string, doc string) bool {
+	queryTokens := lexicalTokens(query)
+	if len(queryTokens) == 0 {
+		return false
+	}
+	docTokens := lexicalTokens(doc)
+	if len(docTokens) == 0 {
+		return false
+	}
+
+	for _, queryToken := range queryTokens {
+		if !hasMatchingDocumentToken(queryToken, docTokens) {
+			return false
+		}
+	}
+	return true
+}
+
+func lexicalTokens(s string) []string {
+	var tokens []string
+	start := -1
+	for i, r := range s {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			if start < 0 {
+				start = i
+			}
+			continue
+		}
+		if start >= 0 {
+			tokens = append(tokens, s[start:i])
+			start = -1
+		}
+	}
+	if start >= 0 {
+		tokens = append(tokens, s[start:])
+	}
+	return tokens
+}
+
+func hasMatchingDocumentToken(queryToken string, docTokens []string) bool {
+	for _, docToken := range docTokens {
+		if utf8.RuneCountInString(queryToken) <= 2 {
+			if strings.Compare(docToken, queryToken) == 0 {
+				return true
+			}
+			continue
+		}
+		if strings.HasPrefix(docToken, queryToken) {
+			return true
+		}
+	}
+	return false
 }

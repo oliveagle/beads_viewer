@@ -15,5 +15,5 @@ pub mod pagerank;
 pub mod parallel_cut;
 pub mod slack;
 pub mod subgraph;
-pub mod topo;
 pub mod topk_set;
+pub mod topo;

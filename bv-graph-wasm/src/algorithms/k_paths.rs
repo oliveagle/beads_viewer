@@ -6,6 +6,7 @@
 use crate::algorithms::topo::topological_sort;
 use crate::graph::DiGraph;
 use serde::Serialize;
+use std::cmp::Reverse;
 
 /// A single critical path through the graph.
 #[derive(Debug, Clone, Serialize)]
@@ -85,7 +86,7 @@ pub fn k_critical_paths(graph: &DiGraph, k: usize) -> KPathsResult {
     let mut candidates: Vec<(usize, usize)> = (0..n).map(|v| (v, dist[v])).collect();
 
     // Sort by distance descending
-    candidates.sort_by(|a, b| b.1.cmp(&a.1));
+    candidates.sort_by_key(|candidate| Reverse(candidate.1));
     candidates.truncate(k);
 
     // Find max length
@@ -137,11 +138,7 @@ mod tests {
 
     fn make_graph(edges: &[(usize, usize)]) -> DiGraph {
         let mut g = DiGraph::new();
-        let max_node = edges
-            .iter()
-            .flat_map(|(a, b)| [*a, *b])
-            .max()
-            .unwrap_or(0);
+        let max_node = edges.iter().flat_map(|(a, b)| [*a, *b]).max().unwrap_or(0);
         for i in 0..=max_node {
             g.add_node(&format!("n{}", i));
         }

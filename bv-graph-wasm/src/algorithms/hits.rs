@@ -75,16 +75,16 @@ pub fn hits(graph: &DiGraph, config: &HITSConfig) -> HITSResult {
         let mut new_hubs = vec![0.0; n];
 
         // Authority update: auth(v) = sum of hub(u) for all u → v
-        for v in 0..n {
+        for (v, auth_score) in new_auth.iter_mut().enumerate() {
             for &u in graph.predecessors_slice(v) {
-                new_auth[v] += hubs[u];
+                *auth_score += hubs[u];
             }
         }
 
         // Hub update: hub(u) = sum of auth(v) for all u → v
-        for u in 0..n {
+        for (u, hub_score) in new_hubs.iter_mut().enumerate() {
             for &v in graph.successors_slice(u) {
-                new_hubs[u] += new_auth[v];
+                *hub_score += new_auth[v];
             }
         }
 
@@ -225,8 +225,8 @@ mod tests {
             "auth should have higher authority"
         );
         // a, b, c should have equal hub scores
-        let hub_diff = (result.hubs[a] - result.hubs[b]).abs()
-            + (result.hubs[b] - result.hubs[c]).abs();
+        let hub_diff =
+            (result.hubs[a] - result.hubs[b]).abs() + (result.hubs[b] - result.hubs[c]).abs();
         assert!(hub_diff < 0.01, "a, b, c should have equal hub scores");
     }
 
@@ -269,11 +269,14 @@ mod tests {
         let result = hits_default(&graph);
 
         // In a symmetric cycle, all nodes should have similar scores
-        let hub_diff = (result.hubs[a] - result.hubs[b]).abs()
-            + (result.hubs[b] - result.hubs[c]).abs();
+        let hub_diff =
+            (result.hubs[a] - result.hubs[b]).abs() + (result.hubs[b] - result.hubs[c]).abs();
         let auth_diff = (result.authorities[a] - result.authorities[b]).abs()
             + (result.authorities[b] - result.authorities[c]).abs();
-        assert!(hub_diff < 0.01, "Cycle nodes should have similar hub scores");
+        assert!(
+            hub_diff < 0.01,
+            "Cycle nodes should have similar hub scores"
+        );
         assert!(
             auth_diff < 0.01,
             "Cycle nodes should have similar authority scores"
@@ -294,12 +297,7 @@ mod tests {
 
         // L2 norm should be 1
         let hub_norm: f64 = result.hubs.iter().map(|v| v * v).sum::<f64>().sqrt();
-        let auth_norm: f64 = result
-            .authorities
-            .iter()
-            .map(|v| v * v)
-            .sum::<f64>()
-            .sqrt();
+        let auth_norm: f64 = result.authorities.iter().map(|v| v * v).sum::<f64>().sqrt();
 
         assert!(
             (hub_norm - 1.0).abs() < 0.001,

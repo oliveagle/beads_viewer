@@ -144,11 +144,7 @@ mod tests {
 
     fn make_graph(edges: &[(usize, usize)]) -> DiGraph {
         let mut g = DiGraph::new();
-        let max_node = edges
-            .iter()
-            .flat_map(|(a, b)| [*a, *b])
-            .max()
-            .unwrap_or(0);
+        let max_node = edges.iter().flat_map(|(a, b)| [*a, *b]).max().unwrap_or(0);
         for i in 0..=max_node {
             g.add_node(&format!("n{}", i));
         }

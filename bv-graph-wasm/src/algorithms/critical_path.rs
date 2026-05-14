@@ -63,9 +63,7 @@ pub fn critical_path_nodes(graph: &DiGraph) -> Vec<usize> {
 
 /// Get the maximum height (critical path length).
 pub fn critical_path_length(graph: &DiGraph) -> f64 {
-    critical_path_heights(graph)
-        .into_iter()
-        .fold(0.0, f64::max)
+    critical_path_heights(graph).into_iter().fold(0.0, f64::max)
 }
 
 #[cfg(test)]

@@ -35,79 +35,75 @@ pub fn articulation_points(graph: &DiGraph) -> Vec<usize> {
     // Build undirected adjacency
     let neighbors = build_undirected_neighbors(graph);
 
-    // Tarjan's algorithm state
-    let mut disc = vec![0usize; n];
-    let mut low = vec![0usize; n];
-    let mut parent = vec![usize::MAX; n]; // usize::MAX means no parent (root)
-    let mut visited = vec![false; n];
-    let mut is_ap = vec![false; n];
-    let mut time = 0usize;
+    let mut dfs = ArticulationDfs {
+        neighbors: &neighbors,
+        disc: vec![0usize; n],
+        low: vec![0usize; n],
+        parent: vec![usize::MAX; n], // usize::MAX means no parent (root)
+        visited: vec![false; n],
+        is_ap: vec![false; n],
+        time: 0usize,
+    };
 
     // Run DFS from each unvisited node (handles disconnected components)
     for start in 0..n {
-        if !visited[start] {
-            tarjan_dfs(
-                start,
-                &neighbors,
-                &mut disc,
-                &mut low,
-                &mut parent,
-                &mut visited,
-                &mut is_ap,
-                &mut time,
-            );
+        if !dfs.visited[start] {
+            dfs.visit(start);
         }
     }
 
     // Collect articulation points
-    is_ap
+    dfs.is_ap
         .iter()
         .enumerate()
         .filter_map(|(i, &ap)| if ap { Some(i) } else { None })
         .collect()
 }
 
-/// DFS for Tarjan's articulation point algorithm.
-fn tarjan_dfs(
-    v: usize,
-    neighbors: &[Vec<usize>],
-    disc: &mut [usize],
-    low: &mut [usize],
-    parent: &mut [usize],
-    visited: &mut [bool],
-    is_ap: &mut [bool],
-    time: &mut usize,
-) {
-    visited[v] = true;
-    *time += 1;
-    disc[v] = *time;
-    low[v] = *time;
-    let mut children = 0;
+struct ArticulationDfs<'a> {
+    neighbors: &'a [Vec<usize>],
+    disc: Vec<usize>,
+    low: Vec<usize>,
+    parent: Vec<usize>,
+    visited: Vec<bool>,
+    is_ap: Vec<bool>,
+    time: usize,
+}
 
-    for &u in &neighbors[v] {
-        if !visited[u] {
-            children += 1;
-            parent[u] = v;
+impl ArticulationDfs<'_> {
+    /// DFS for Tarjan's articulation point algorithm.
+    fn visit(&mut self, v: usize) {
+        self.visited[v] = true;
+        self.time += 1;
+        self.disc[v] = self.time;
+        self.low[v] = self.time;
+        let mut children = 0;
 
-            tarjan_dfs(u, neighbors, disc, low, parent, visited, is_ap, time);
+        for &u in &self.neighbors[v] {
+            if !self.visited[u] {
+                children += 1;
+                self.parent[u] = v;
 
-            // Update low-link
-            low[v] = low[v].min(low[u]);
+                self.visit(u);
 
-            // Check if v is an articulation point
-            // Case 1: v is root with >1 DFS children
-            if parent[v] == usize::MAX && children > 1 {
-                is_ap[v] = true;
+                // Update low-link
+                self.low[v] = self.low[v].min(self.low[u]);
+
+                // Check if v is an articulation point
+                // Case 1: v is root with >1 DFS children
+                if self.parent[v] == usize::MAX && children > 1 {
+                    self.is_ap[v] = true;
+                }
+
+                // Case 2: v is not root and low[u] >= disc[v]
+                // This means u (and its subtree) cannot reach any ancestor of v
+                if self.parent[v] != usize::MAX && self.low[u] >= self.disc[v] {
+                    self.is_ap[v] = true;
+                }
+            } else if u != self.parent[v] {
+                // Back edge (not to parent)
+                self.low[v] = self.low[v].min(self.disc[u]);
             }
-
-            // Case 2: v is not root and low[u] >= disc[v]
-            // This means u (and its subtree) cannot reach any ancestor of v
-            if parent[v] != usize::MAX && low[u] >= disc[v] {
-                is_ap[v] = true;
-            }
-        } else if u != parent[v] {
-            // Back edge (not to parent)
-            low[v] = low[v].min(disc[u]);
         }
     }
 }
@@ -128,7 +124,10 @@ fn build_undirected_neighbors(graph: &DiGraph) -> Vec<Vec<usize>> {
     }
 
     // Convert to Vec<Vec> for faster iteration
-    neighbors.into_iter().map(|s| s.into_iter().collect()).collect()
+    neighbors
+        .into_iter()
+        .map(|s| s.into_iter().collect())
+        .collect()
 }
 
 /// Count bridges (cut edges) in the graph.
@@ -141,60 +140,57 @@ pub fn bridges(graph: &DiGraph) -> Vec<(usize, usize)> {
 
     let neighbors = build_undirected_neighbors(graph);
 
-    let mut disc = vec![0usize; n];
-    let mut low = vec![0usize; n];
-    let mut parent = vec![usize::MAX; n];
-    let mut visited = vec![false; n];
-    let mut bridge_list = Vec::new();
-    let mut time = 0usize;
+    let mut dfs = BridgeDfs {
+        neighbors: &neighbors,
+        disc: vec![0usize; n],
+        low: vec![0usize; n],
+        parent: vec![usize::MAX; n],
+        visited: vec![false; n],
+        bridges: Vec::new(),
+        time: 0usize,
+    };
 
     for start in 0..n {
-        if !visited[start] {
-            bridge_dfs(
-                start,
-                &neighbors,
-                &mut disc,
-                &mut low,
-                &mut parent,
-                &mut visited,
-                &mut bridge_list,
-                &mut time,
-            );
+        if !dfs.visited[start] {
+            dfs.visit(start);
         }
     }
 
-    bridge_list
+    dfs.bridges
 }
 
-/// DFS for bridge detection.
-fn bridge_dfs(
-    v: usize,
-    neighbors: &[Vec<usize>],
-    disc: &mut [usize],
-    low: &mut [usize],
-    parent: &mut [usize],
-    visited: &mut [bool],
-    bridges: &mut Vec<(usize, usize)>,
-    time: &mut usize,
-) {
-    visited[v] = true;
-    *time += 1;
-    disc[v] = *time;
-    low[v] = *time;
+struct BridgeDfs<'a> {
+    neighbors: &'a [Vec<usize>],
+    disc: Vec<usize>,
+    low: Vec<usize>,
+    parent: Vec<usize>,
+    visited: Vec<bool>,
+    bridges: Vec<(usize, usize)>,
+    time: usize,
+}
 
-    for &u in &neighbors[v] {
-        if !visited[u] {
-            parent[u] = v;
-            bridge_dfs(u, neighbors, disc, low, parent, visited, bridges, time);
+impl BridgeDfs<'_> {
+    /// DFS for bridge detection.
+    fn visit(&mut self, v: usize) {
+        self.visited[v] = true;
+        self.time += 1;
+        self.disc[v] = self.time;
+        self.low[v] = self.time;
 
-            low[v] = low[v].min(low[u]);
+        for &u in &self.neighbors[v] {
+            if !self.visited[u] {
+                self.parent[u] = v;
+                self.visit(u);
 
-            // Bridge condition: if low[u] > disc[v], edge v-u is a bridge
-            if low[u] > disc[v] {
-                bridges.push((v.min(u), v.max(u))); // Canonical order
+                self.low[v] = self.low[v].min(self.low[u]);
+
+                // Bridge condition: if low[u] > disc[v], edge v-u is a bridge
+                if self.low[u] > self.disc[v] {
+                    self.bridges.push((v.min(u), v.max(u))); // Canonical order
+                }
+            } else if u != self.parent[v] {
+                self.low[v] = self.low[v].min(self.disc[u]);
             }
-        } else if u != parent[v] {
-            low[v] = low[v].min(disc[u]);
         }
     }
 }

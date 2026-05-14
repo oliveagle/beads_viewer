@@ -33,76 +33,73 @@ pub fn tarjan_scc(graph: &DiGraph) -> SCCResult {
         };
     }
 
-    let mut index = 0usize;
-    let mut indices = vec![usize::MAX; n];
-    let mut lowlink = vec![usize::MAX; n];
-    let mut on_stack = vec![false; n];
-    let mut stack: Vec<usize> = Vec::new();
-    let mut components: Vec<Vec<usize>> = Vec::new();
+    let mut state = TarjanState {
+        graph,
+        index: 0usize,
+        indices: vec![usize::MAX; n],
+        lowlink: vec![usize::MAX; n],
+        on_stack: vec![false; n],
+        stack: Vec::new(),
+        components: Vec::new(),
+    };
 
-    fn strongconnect(
-        v: usize,
-        graph: &DiGraph,
-        index: &mut usize,
-        indices: &mut [usize],
-        lowlink: &mut [usize],
-        on_stack: &mut [bool],
-        stack: &mut Vec<usize>,
-        components: &mut Vec<Vec<usize>>,
-    ) {
-        indices[v] = *index;
-        lowlink[v] = *index;
-        *index += 1;
-        stack.push(v);
-        on_stack[v] = true;
+    for v in 0..n {
+        if state.indices[v] == usize::MAX {
+            state.strongconnect(v);
+        }
+    }
 
-        for &w in graph.successors_slice(v) {
-            if indices[w] == usize::MAX {
+    let cycle_count = state.components.iter().filter(|c| c.len() > 1).count();
+
+    SCCResult {
+        components: state.components,
+        has_cycles: cycle_count > 0,
+        cycle_count,
+    }
+}
+
+struct TarjanState<'a> {
+    graph: &'a DiGraph,
+    index: usize,
+    indices: Vec<usize>,
+    lowlink: Vec<usize>,
+    on_stack: Vec<bool>,
+    stack: Vec<usize>,
+    components: Vec<Vec<usize>>,
+}
+
+impl TarjanState<'_> {
+    fn strongconnect(&mut self, v: usize) {
+        self.indices[v] = self.index;
+        self.lowlink[v] = self.index;
+        self.index += 1;
+        self.stack.push(v);
+        self.on_stack[v] = true;
+
+        for &w in self.graph.successors_slice(v) {
+            if self.indices[w] == usize::MAX {
                 // Not visited
-                strongconnect(w, graph, index, indices, lowlink, on_stack, stack, components);
-                lowlink[v] = lowlink[v].min(lowlink[w]);
-            } else if on_stack[w] {
+                self.strongconnect(w);
+                self.lowlink[v] = self.lowlink[v].min(self.lowlink[w]);
+            } else if self.on_stack[w] {
                 // On stack = in current SCC
-                lowlink[v] = lowlink[v].min(indices[w]);
+                self.lowlink[v] = self.lowlink[v].min(self.indices[w]);
             }
         }
 
         // If v is a root node, pop the stack to get SCC
-        if lowlink[v] == indices[v] {
+        if self.lowlink[v] == self.indices[v] {
             let mut component = Vec::new();
             loop {
-                let w = stack.pop().unwrap();
-                on_stack[w] = false;
+                let w = self.stack.pop().unwrap();
+                self.on_stack[w] = false;
                 component.push(w);
                 if w == v {
                     break;
                 }
             }
-            components.push(component);
+            self.components.push(component);
         }
-    }
-
-    for v in 0..n {
-        if indices[v] == usize::MAX {
-            strongconnect(
-                v,
-                graph,
-                &mut index,
-                &mut indices,
-                &mut lowlink,
-                &mut on_stack,
-                &mut stack,
-                &mut components,
-            );
-        }
-    }
-
-    let cycle_count = components.iter().filter(|c| c.len() > 1).count();
-
-    SCCResult {
-        components,
-        has_cycles: cycle_count > 0,
-        cycle_count,
     }
 }
 
@@ -144,71 +141,6 @@ pub fn enumerate_cycles(graph: &DiGraph, max_cycles: usize) -> Vec<Vec<usize>> {
         }
     }
 
-    // Circuit search from start vertex
-    fn circuit(
-        v: usize,
-        start: usize,
-        graph: &DiGraph,
-        blocked: &mut [bool],
-        blocked_map: &mut [HashSet<usize>],
-        stack: &mut Vec<usize>,
-        cycles: &mut Vec<Vec<usize>>,
-        max_cycles: usize,
-        min_node: usize,
-    ) -> bool {
-        if cycles.len() >= max_cycles {
-            return false;
-        }
-
-        let mut found = false;
-        stack.push(v);
-        blocked[v] = true;
-
-        for &w in graph.successors_slice(v) {
-            // Only consider nodes >= min_node (Johnson's optimization)
-            if w < min_node {
-                continue;
-            }
-
-            if w == start {
-                // Found a cycle
-                cycles.push(stack.clone());
-                found = true;
-                if cycles.len() >= max_cycles {
-                    stack.pop();
-                    return found;
-                }
-            } else if !blocked[w] {
-                if circuit(
-                    w,
-                    start,
-                    graph,
-                    blocked,
-                    blocked_map,
-                    stack,
-                    cycles,
-                    max_cycles,
-                    min_node,
-                ) {
-                    found = true;
-                }
-            }
-        }
-
-        if found {
-            unblock(v, blocked, blocked_map);
-        } else {
-            for &w in graph.successors_slice(v) {
-                if w >= min_node {
-                    blocked_map[w].insert(v);
-                }
-            }
-        }
-
-        stack.pop();
-        found
-    }
-
     // Run Johnson's algorithm starting from each node
     for start in 0..n {
         if cycles.len() >= max_cycles {
@@ -216,27 +148,86 @@ pub fn enumerate_cycles(graph: &DiGraph, max_cycles: usize) -> Vec<Vec<usize>> {
         }
 
         // Reset blocked state
-        for b in &mut blocked {
-            *b = false;
-        }
+        blocked.fill(false);
         for s in &mut blocked_map {
             s.clear();
         }
 
-        circuit(
-            start,
-            start,
+        let mut state = CircuitState {
             graph,
-            &mut blocked,
-            &mut blocked_map,
-            &mut stack,
-            &mut cycles,
+            blocked: &mut blocked,
+            blocked_map: &mut blocked_map,
+            stack: &mut stack,
+            cycles: &mut cycles,
             max_cycles,
-            start,
-        );
+            min_node: start,
+        };
+        state.circuit(start, start, &mut |u, blocked, blocked_map| {
+            unblock(u, blocked, blocked_map)
+        });
     }
 
     cycles
+}
+
+struct CircuitState<'a> {
+    graph: &'a DiGraph,
+    blocked: &'a mut [bool],
+    blocked_map: &'a mut [HashSet<usize>],
+    stack: &'a mut Vec<usize>,
+    cycles: &'a mut Vec<Vec<usize>>,
+    max_cycles: usize,
+    min_node: usize,
+}
+
+impl CircuitState<'_> {
+    // Circuit search from start vertex.
+    fn circuit(
+        &mut self,
+        v: usize,
+        start: usize,
+        unblock: &mut impl FnMut(usize, &mut [bool], &mut [HashSet<usize>]),
+    ) -> bool {
+        if self.cycles.len() >= self.max_cycles {
+            return false;
+        }
+
+        let mut found = false;
+        self.stack.push(v);
+        self.blocked[v] = true;
+
+        for &w in self.graph.successors_slice(v) {
+            // Only consider nodes >= min_node (Johnson's optimization)
+            if w < self.min_node {
+                continue;
+            }
+
+            if w == start {
+                // Found a cycle
+                self.cycles.push(self.stack.clone());
+                found = true;
+                if self.cycles.len() >= self.max_cycles {
+                    self.stack.pop();
+                    return found;
+                }
+            } else if !self.blocked[w] && self.circuit(w, start, unblock) {
+                found = true;
+            }
+        }
+
+        if found {
+            unblock(v, self.blocked, self.blocked_map);
+        } else {
+            for &w in self.graph.successors_slice(v) {
+                if w >= self.min_node {
+                    self.blocked_map[w].insert(v);
+                }
+            }
+        }
+
+        self.stack.pop();
+        found
+    }
 }
 
 /// Result of cycle enumeration with metadata.
@@ -355,7 +346,8 @@ pub fn cycle_break_suggestions(
         for &to in graph.successors_slice(from) {
             if cycle_nodes.contains(&to) {
                 let cycles_broken = edge_cycle_count.get(&(from, to)).copied().unwrap_or(0);
-                let collateral = graph.successors_slice(from).len() + graph.predecessors_slice(to).len();
+                let collateral =
+                    graph.successors_slice(from).len() + graph.predecessors_slice(to).len();
 
                 suggestions.push(CycleBreakItem {
                     from,
@@ -370,11 +362,9 @@ pub fn cycle_break_suggestions(
     }
 
     // Sort by: cycles_broken desc, collateral asc
-    suggestions.sort_by(|a, b| {
-        match b.cycles_broken.cmp(&a.cycles_broken) {
-            std::cmp::Ordering::Equal => a.collateral.cmp(&b.collateral),
-            other => other,
-        }
+    suggestions.sort_by(|a, b| match b.cycles_broken.cmp(&a.cycles_broken) {
+        std::cmp::Ordering::Equal => a.collateral.cmp(&b.collateral),
+        other => other,
     });
 
     suggestions.truncate(limit);
@@ -410,7 +400,8 @@ pub fn quick_cycle_break_edges(graph: &DiGraph, limit: usize) -> Vec<CycleBreakI
         for &to in graph.successors_slice(from) {
             if cycle_nodes.contains(&to) {
                 // Heuristic: edges with low total degree are better to remove
-                let collateral = graph.successors_slice(from).len() + graph.predecessors_slice(to).len();
+                let collateral =
+                    graph.successors_slice(from).len() + graph.predecessors_slice(to).len();
 
                 suggestions.push(CycleBreakItem {
                     from,

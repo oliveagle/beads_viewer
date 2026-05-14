@@ -68,16 +68,24 @@ fn score_batch_basic_parity() {
     let priority_score_a = 0.8;
     let impact_score_a = 1.0;
     let recency_score_a = 1.0;
-    let expected_a =
-        0.4 * 0.8 + 0.2 * 0.5 + 0.15 * status_score_a + 0.1 * impact_score_a + 0.1 * priority_score_a
-            + 0.05 * recency_score_a;
+    let expected_a = 0.4 * 0.8
+        + 0.2 * 0.5
+        + 0.15 * status_score_a
+        + 0.1 * impact_score_a
+        + 0.1 * priority_score_a
+        + 0.05 * recency_score_a;
 
     assert_close(results[0].score, expected_a, 1e-6, "score A");
     assert_close(results[0].text_score, 0.8, 1e-6, "text A");
     assert_close(results[0].components[0], 0.5, 1e-6, "pagerank A");
     assert_close(results[0].components[1], status_score_a, 1e-6, "status A");
     assert_close(results[0].components[2], impact_score_a, 1e-6, "impact A");
-    assert_close(results[0].components[3], priority_score_a, 1e-6, "priority A");
+    assert_close(
+        results[0].components[3],
+        priority_score_a,
+        1e-6,
+        "priority A",
+    );
     assert_close(results[0].components[4], recency_score_a, 1e-6, "recency A");
 }
 

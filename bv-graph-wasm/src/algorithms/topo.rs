@@ -36,10 +36,8 @@ pub fn topological_sort(graph: &DiGraph) -> Option<Vec<usize>> {
     let mut in_degree: Vec<usize> = (0..n).map(|i| graph.in_degree(i)).collect();
 
     // Min-heap for deterministic ordering (process lowest index first)
-    let mut heap: BinaryHeap<Reverse<usize>> = (0..n)
-        .filter(|&i| in_degree[i] == 0)
-        .map(Reverse)
-        .collect();
+    let mut heap: BinaryHeap<Reverse<usize>> =
+        (0..n).filter(|&i| in_degree[i] == 0).map(Reverse).collect();
 
     let mut order = Vec::with_capacity(n);
 
@@ -71,7 +69,10 @@ pub fn is_dag(graph: &DiGraph) -> bool {
 /// Compute topological sort with detailed result.
 pub fn topological_sort_result(graph: &DiGraph) -> TopoSortResult {
     match topological_sort(graph) {
-        Some(order) => TopoSortResult { order, is_dag: true },
+        Some(order) => TopoSortResult {
+            order,
+            is_dag: true,
+        },
         None => TopoSortResult {
             order: Vec::new(),
             is_dag: false,
@@ -134,7 +135,7 @@ mod tests {
         // With min-heap, should be [a, b, c, d]
         assert_eq!(result[0], a); // a first
         assert_eq!(result[3], d); // d last
-        // b before c due to min-heap ordering
+                                  // b before c due to min-heap ordering
         assert_eq!(result, vec![0, 1, 2, 3]);
     }
 

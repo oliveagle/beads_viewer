@@ -67,11 +67,7 @@ impl HybridScorer {
             Err(_) => return "[]".to_string(),
         };
 
-        self.max_blocker_count = metrics
-            .iter()
-            .map(|m| m.blocker_count)
-            .max()
-            .unwrap_or(0);
+        self.max_blocker_count = metrics.iter().map(|m| m.blocker_count).max().unwrap_or(0);
 
         let mut results: Vec<ScoredResult> = metrics.iter().map(|m| self.score_single(m)).collect();
 
@@ -105,7 +101,13 @@ impl HybridScorer {
             id: m.id.clone(),
             score,
             text_score: safe_number(m.text_score),
-            components: [pagerank, status_score, impact_score, priority_score, recency_score],
+            components: [
+                pagerank,
+                status_score,
+                impact_score,
+                priority_score,
+                recency_score,
+            ],
         }
     }
 }

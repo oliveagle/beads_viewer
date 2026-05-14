@@ -129,11 +129,7 @@ mod tests {
 
     fn make_graph(edges: &[(usize, usize)]) -> DiGraph {
         let mut g = DiGraph::new();
-        let max_node = edges
-            .iter()
-            .flat_map(|(a, b)| [*a, *b])
-            .max()
-            .unwrap_or(0);
+        let max_node = edges.iter().flat_map(|(a, b)| [*a, *b]).max().unwrap_or(0);
         for i in 0..=max_node {
             g.add_node(&format!("n{}", i));
         }
@@ -231,13 +227,7 @@ mod tests {
     #[test]
     fn test_limit_respected() {
         // Many independent chains
-        let g = make_graph(&[
-            (0, 1),
-            (2, 3),
-            (4, 5),
-            (6, 7),
-            (8, 9),
-        ]);
+        let g = make_graph(&[(0, 1), (2, 3), (4, 5), (6, 7), (8, 9)]);
         let result = topk_set(&g, &[false; 10], 2);
 
         assert_eq!(result.items.len(), 2);

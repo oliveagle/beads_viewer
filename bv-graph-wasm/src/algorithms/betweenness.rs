@@ -140,8 +140,8 @@ fn sample_nodes(n: usize, k: usize, seed: Option<u64>) -> Vec<usize> {
         Some(s) => s,
         None => {
             let mut buf = [0u8; 8];
-            // getrandom works in WASM with the js feature
-            let _ = getrandom::getrandom(&mut buf);
+            // getrandom works in WASM with the wasm_js feature
+            let _ = getrandom::fill(&mut buf);
             u64::from_le_bytes(buf)
         }
     };

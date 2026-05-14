@@ -1,0 +1,68 @@
+# Dependency Upgrade Log
+
+**Date:** 2026-05-14 | **Project:** beads_viewer | **Languages:** Go, Rust/WASM
+
+## Summary
+
+- **Updated:** Go module/vendor dependencies and Rust/WASM lockfiles.
+- **Skipped:** Unneeded modules that only appear in the broader module graph and are not required by `go mod why -m`.
+- **Failed:** None.
+- **Needs attention:** None.
+
+## Local `/dp` Dependency Check
+
+### github.com/Dicklesworthstone/toon-go
+
+- **Current:** `v0.0.0-20260322013033-4564467a45fb`
+- **Local `/dp` state:** `/dp/toon-go` is on commit `4564467a45fbb70f24b08cf500d7637b24e65e56`.
+- **Action:** Preserved. The project is already using the latest local `/dp/toon-go` version.
+
+## Go Updates
+
+### Direct dependencies
+
+- `github.com/fsnotify/fsnotify`: `v1.9.0` -> `v1.10.1`
+- `github.com/mattn/go-runewidth`: `v0.0.21` -> `v0.0.23`
+- `golang.org/x/image`: `v0.37.0` -> `v0.40.0`
+- `golang.org/x/sys`: `v0.42.0` -> `v0.44.0`
+- `golang.org/x/term`: `v0.41.0` -> `v0.43.0`
+- `modernc.org/sqlite`: `v1.47.0` -> `v1.50.1`
+- `pgregory.net/rapid`: `v1.2.0` -> `v1.3.0`
+
+### Notable indirect dependency updates
+
+- `github.com/alecthomas/chroma/v2`: `v2.23.1` -> `v2.24.1`
+- `github.com/charmbracelet/x/ansi`: `v0.11.6` -> `v0.11.7`
+- `github.com/dlclark/regexp2`: `v1.11.5` -> `v1.12.0`
+- `github.com/lucasb-eyer/go-colorful`: `v1.3.0` -> `v1.4.0`
+- `github.com/mattn/go-isatty`: `v0.0.20` -> `v0.0.22`
+- `github.com/sahilm/fuzzy`: `v0.1.1` -> `v0.1.2`
+- `github.com/yuin/goldmark`: `v1.7.17` -> `v1.8.2`
+- `golang.org/x/net`: `v0.52.0` -> `v0.54.0`
+- `golang.org/x/text`: `v0.35.0` -> `v0.37.0`
+- `golang.org/x/tools`: `v0.43.0` -> `v0.45.0`
+- `modernc.org/libc`: `v1.70.0` -> `v1.72.3`
+
+## Rust/WASM Updates
+
+### bv-graph-wasm
+
+- `getrandom`: `0.2` with `js` feature -> `0.4` with `wasm_js` feature.
+- Updated call site from `getrandom::getrandom` to `getrandom::fill`.
+- Refreshed `Cargo.lock` to latest compatible stable versions.
+
+### pkg/export/wasm_scorer
+
+- Refreshed `Cargo.lock` to latest compatible stable versions.
+- Added `rlib` crate type alongside `cdylib` so integration tests can import the crate while preserving WASM output.
+
+## Validation
+
+Final validation was run after updates:
+
+- `BV_NO_BROWSER=1 BV_TEST_MODE=1 go vet ./...`
+- `BV_NO_BROWSER=1 BV_TEST_MODE=1 go build ./...`
+- `BV_NO_BROWSER=1 BV_TEST_MODE=1 go test ./...`
+- `cargo fmt --check`, `cargo clippy -- -D warnings`, and `cargo test` in both Rust/WASM crates.
+
+Additional release-gate commands are tracked in the release session notes and final response.

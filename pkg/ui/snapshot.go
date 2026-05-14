@@ -1168,9 +1168,9 @@ func (s *DataSnapshot) WithPhase2(stats *analysis.GraphStats, insights analysis.
 		IssueMap:     clonedIssueMap,
 		pooledIssues: s.pooledIssues,
 		ViewIssues:   s.ViewIssues,
-		ListItems:    deepCopyListItems(s.ListItems), // Deep copy - contains mutable SearchComponents/TriageReasons
-		TreeRoots:    treeRoots,                      // Deep copy - tree view mutates these
-		TreeNodeMap:  treeNodeMap,                    // Deep copy - tree view mutates these
+		ListItems:    deepCopyListItems(s.ListItems),   // Deep copy - contains mutable SearchComponents/TriageReasons
+		TreeRoots:    treeRoots,                        // Deep copy - tree view mutates these
+		TreeNodeMap:  treeNodeMap,                      // Deep copy - tree view mutates these
 		BoardState:   deepCopyBoardState(s.BoardState), // Deep copy - contains mutable [4][]model.Issue arrays
 
 		// Updated with Phase 2 data

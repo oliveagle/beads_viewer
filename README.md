@@ -55,11 +55,11 @@ scoop install dicklesworthstone/bv
 ### Alternative: Direct Download
 
 Download the latest release for your platform (tar.gz assets):
-- [Linux x86_64](https://github.com/Dicklesworthstone/beads_viewer/releases/latest/download/bv_0.13.0_linux_amd64.tar.gz)
-- [Linux ARM64](https://github.com/Dicklesworthstone/beads_viewer/releases/latest/download/bv_0.13.0_linux_arm64.tar.gz)
-- [macOS Intel](https://github.com/Dicklesworthstone/beads_viewer/releases/latest/download/bv_0.13.0_darwin_amd64.tar.gz)
-- [macOS ARM](https://github.com/Dicklesworthstone/beads_viewer/releases/latest/download/bv_0.13.0_darwin_arm64.tar.gz)
-- [Windows](https://github.com/Dicklesworthstone/beads_viewer/releases/latest/download/bv_0.13.0_windows_amd64.tar.gz)
+- [Linux x86_64](https://github.com/Dicklesworthstone/beads_viewer/releases/latest/download/bv_0.16.1_linux_amd64.tar.gz)
+- [Linux ARM64](https://github.com/Dicklesworthstone/beads_viewer/releases/latest/download/bv_0.16.1_linux_arm64.tar.gz)
+- [macOS Intel](https://github.com/Dicklesworthstone/beads_viewer/releases/latest/download/bv_0.16.1_darwin_amd64.tar.gz)
+- [macOS ARM](https://github.com/Dicklesworthstone/beads_viewer/releases/latest/download/bv_0.16.1_darwin_arm64.tar.gz)
+- [Windows](https://github.com/Dicklesworthstone/beads_viewer/releases/latest/download/bv_0.16.1_windows_amd64.tar.gz)
 
 > Note: Asset names include the release version. If a link 404s, open the latest release page and download the matching asset.
 

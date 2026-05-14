@@ -14,7 +14,7 @@ name: Notify ACFS of Installer Changes
 
 on:
   push:
-    branches: [main, master]
+    branches: [main]
     paths:
       - 'install.sh'
   workflow_dispatch:  # Manual trigger for testing

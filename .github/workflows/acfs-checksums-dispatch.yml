@@ -2,7 +2,7 @@ name: Notify ACFS checksum monitor
 
 on:
   push:
-    branches: [main, master]
+    branches: [main]
     paths:
       - 'install.sh'
       - 'scripts/install.sh'

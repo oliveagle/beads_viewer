@@ -5,7 +5,7 @@ edition = "2021"
 
 [lib]
 name = "bv_hybrid_scorer"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 wasm-bindgen = "0.2"

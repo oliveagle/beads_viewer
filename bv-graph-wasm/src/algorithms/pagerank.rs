@@ -49,9 +49,7 @@ pub fn pagerank(graph: &DiGraph, config: &PageRankConfig) -> Vec<f64> {
 
     for _ in 0..config.max_iterations {
         // Reset new scores to base value
-        for s in &mut new_scores {
-            *s = base;
-        }
+        new_scores.fill(base);
 
         // Handle dangling nodes (no outgoing edges)
         // Their rank "leaks" and is distributed uniformly
@@ -67,10 +65,10 @@ pub fn pagerank(graph: &DiGraph, config: &PageRankConfig) -> Vec<f64> {
         }
 
         // Accumulate contributions from predecessors
-        for v in 0..n {
+        for (v, score) in new_scores.iter_mut().enumerate() {
             for &u in graph.predecessors_slice(v) {
                 if out_degrees[u] > 0 {
-                    new_scores[v] += d * scores[u] / out_degrees[u] as f64;
+                    *score += d * scores[u] / out_degrees[u] as f64;
                 }
             }
         }

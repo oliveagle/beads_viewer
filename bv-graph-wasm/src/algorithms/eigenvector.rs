@@ -41,15 +41,13 @@ pub fn eigenvector(graph: &DiGraph, config: &EigenvectorConfig) -> Vec<f64> {
 
     for _ in 0..config.iterations {
         // Reset work vector
-        for w in &mut work {
-            *w = 0.0;
-        }
+        work.fill(0.0);
 
         // Multiply: work = A^T * vec (sum of predecessor scores)
         // A node's score = sum of scores of nodes that point to it
-        for v in 0..n {
+        for (v, score) in work.iter_mut().enumerate() {
             for &u in graph.predecessors_slice(v) {
-                work[v] += vec[u];
+                *score += vec[u];
             }
         }
 

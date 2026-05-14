@@ -362,6 +362,28 @@ func TestBuildGitLogArgs(t *testing.T) {
 	})
 }
 
+func TestIsIgnorableDiffMetadataLine(t *testing.T) {
+	tests := []struct {
+		line string
+		want bool
+	}{
+		{"", true},
+		{"@@ -1 +1 @@", true},
+		{"diff --git a/file b/file", true},
+		{"index 123..456", true},
+		{"new file mode 100644", true},
+		{`+{"id":"bv-1","status":"open"}`, false},
+		{`-{"id":"bv-1","status":"closed"}`, false},
+		{" context", false},
+	}
+
+	for _, tt := range tests {
+		if got := isIgnorableDiffMetadataLine(tt.line); got != tt.want {
+			t.Fatalf("isIgnorableDiffMetadataLine(%q) = %v, want %v", tt.line, got, tt.want)
+		}
+	}
+}
+
 // TestParseDiff tests the diff parsing logic with mock data
 func TestParseDiff(t *testing.T) {
 	e := NewExtractor("/test/repo", "")

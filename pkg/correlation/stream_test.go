@@ -67,6 +67,19 @@ func TestStreamExtractor_SetProgressCallback(t *testing.T) {
 	}
 }
 
+func TestStreamExtractor_BuildStreamCommandDisablesColor(t *testing.T) {
+	s := NewStreamExtractor("/tmp/test")
+	cmd := s.buildStreamCommand(StreamOptions{Limit: 5}, 5)
+
+	args := cmd.Args
+	if len(args) < 4 {
+		t.Fatalf("git command args too short: %#v", args)
+	}
+	if args[0] != "git" || args[1] != "-c" || args[2] != "color.ui=false" || args[3] != "log" {
+		t.Fatalf("git command should disable color before log, got %#v", args)
+	}
+}
+
 func TestParseCommitHeader(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -408,6 +421,33 @@ func TestStreamExtractor_StreamEvents_InGitRepo(t *testing.T) {
 
 	// Just verify it returns without error
 	t.Logf("Got %d events from stream extraction", len(events))
+}
+
+func TestStreamExtractor_StreamEventsWithGitColorAlways(t *testing.T) {
+	repoPath := initTempGitRepo(t)
+	runGit(t, repoPath, "config", "color.ui", "always")
+
+	beadsDir := filepath.Join(repoPath, ".beads")
+	if err := os.MkdirAll(beadsDir, 0o755); err != nil {
+		t.Fatalf("create beads dir: %v", err)
+	}
+	beadsPath := filepath.Join(beadsDir, "beads.jsonl")
+	if err := os.WriteFile(beadsPath, []byte(`{"id":"bv-color","status":"open","title":"Color safe"}`+"\n"), 0o644); err != nil {
+		t.Fatalf("write beads file: %v", err)
+	}
+	runGit(t, repoPath, "add", ".beads/beads.jsonl")
+	runGit(t, repoPath, "commit", "-m", "add colored history bead")
+
+	events, err := NewStreamExtractor(repoPath).StreamEvents(StreamOptions{Limit: 5})
+	if err != nil {
+		t.Fatalf("StreamEvents failed: %v", err)
+	}
+	for _, event := range events {
+		if event.BeadID == "bv-color" && event.EventType == EventCreated {
+			return
+		}
+	}
+	t.Fatalf("expected created event for bv-color with color.ui=always, got %#v", events)
 }
 
 func TestProgressCallback_CalledDuringParsing(t *testing.T) {

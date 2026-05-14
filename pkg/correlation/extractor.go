@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -85,10 +86,8 @@ func (e *Extractor) Extract(opts ExtractOptions) ([]BeadEvent, error) {
 	// Build git log command
 	logArgs := e.buildGitLogArgs(opts)
 
-	// Inject config to disable colors (essential for parsing)
-	args := append([]string{"-c", "color.ui=false"}, logArgs...)
-
-	cmd := exec.Command("git", args...)
+	// Disable colors so patch lines still start with raw '+' and '-'.
+	cmd := exec.Command("git", withNoColorGit(logArgs)...)
 	cmd.Dir = e.repoPath
 
 	stdout, err := cmd.StdoutPipe()
@@ -211,7 +210,7 @@ func (e *Extractor) parseGitLogOutput(r io.Reader, filterBeadID string) ([]BeadE
 		// ReadLine returns a single line, not including the end-of-line bytes.
 		lineBytes, isPrefix, err := reader.ReadLine()
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			return nil, err
@@ -222,10 +221,10 @@ func (e *Extractor) parseGitLogOutput(r io.Reader, filterBeadID string) ([]BeadE
 			// Consume until newline or EOF
 			for isPrefix {
 				_, isPrefix, err = reader.ReadLine()
-				if err != nil && err != io.EOF {
+				if err != nil && !errors.Is(err, io.EOF) {
 					return nil, err
 				}
-				if err == io.EOF {
+				if errors.Is(err, io.EOF) {
 					break
 				}
 			}
@@ -317,7 +316,7 @@ func (e *Extractor) parseDiff(diffData []byte, info commitInfo, filterBeadID str
 		// 'i' = index
 		// 'n' = new file mode
 		// We only care about lines starting with +/- which are actual changes.
-		if len(line) == 0 || line[0] == '@' || line[0] == 'd' || line[0] == 'i' || line[0] == 'n' {
+		if isIgnorableDiffMetadataLine(line) {
 			continue
 		}
 
@@ -379,6 +378,18 @@ func (e *Extractor) parseDiff(diffData []byte, info commitInfo, filterBeadID str
 	}
 
 	return events
+}
+
+func isIgnorableDiffMetadataLine(line string) bool {
+	if len(line) == 0 {
+		return true
+	}
+	switch line[0] {
+	case '@', 'd', 'i', 'n':
+		return true
+	default:
+		return false
+	}
 }
 
 // parseBeadJSON extracts minimal bead info from a JSON line

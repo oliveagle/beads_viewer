@@ -7,3 +7,10 @@ const (
 	// bufio.Scanner from failing on unusually long lines.
 	gitLogMaxScanTokenSize = 10 * 1024 * 1024 // 10MB
 )
+
+func withNoColorGit(args []string) []string {
+	noColorArgs := make([]string, 0, len(args)+2)
+	noColorArgs = append(noColorArgs, "-c", "color.ui=false")
+	noColorArgs = append(noColorArgs, args...)
+	return noColorArgs
+}

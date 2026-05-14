@@ -161,7 +161,7 @@ func (s *StreamExtractor) buildStreamCommand(opts StreamOptions, limit int) *exe
 	// Use primary beads file
 	args = append(args, s.primaryBeadsFile())
 
-	cmd := exec.Command("git", args...)
+	cmd := exec.Command("git", withNoColorGit(args)...)
 	cmd.Dir = s.repoPath
 	return cmd
 }

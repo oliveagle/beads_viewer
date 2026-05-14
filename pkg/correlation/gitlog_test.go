@@ -48,3 +48,17 @@ func TestGitLogMaxScanTokenSize(t *testing.T) {
 		t.Errorf("gitLogMaxScanTokenSize too large: %d > %d", gitLogMaxScanTokenSize, maxExpected)
 	}
 }
+
+func TestWithNoColorGit(t *testing.T) {
+	args := withNoColorGit([]string{"log", "-p"})
+
+	want := []string{"-c", "color.ui=false", "log", "-p"}
+	if len(args) != len(want) {
+		t.Fatalf("withNoColorGit returned %d args, want %d: %#v", len(args), len(want), args)
+	}
+	for i := range want {
+		if args[i] != want[i] {
+			t.Fatalf("arg %d = %q, want %q in %#v", i, args[i], want[i], args)
+		}
+	}
+}

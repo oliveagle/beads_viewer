@@ -270,7 +270,7 @@ func extractEventsFromCommits(extractor *Extractor, commitSHAs []string, filterB
 	args = append(args, commitSHAs...)
 	args = append(args, "--", extractor.primaryBeadsFile())
 
-	cmd := exec.Command("git", args...)
+	cmd := exec.Command("git", withNoColorGit(args)...)
 	cmd.Dir = extractor.repoPath
 
 	out, err := cmd.Output()

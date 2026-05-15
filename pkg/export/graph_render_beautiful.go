@@ -931,6 +931,68 @@ const TYPE_COLORS = { feature: '#a855f7', bug: '#ef4444', task: '#22d3ee', epic:
 // Configure marked for safe HTML rendering
 marked.setOptions({ breaks: true, gfm: true });
 
+function escapeHTML(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[ch]));
+}
+
+function escapeRegExp(value) {
+    return String(value ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function safeClassToken(value) {
+    return String(value || '').toLowerCase().replace(/[^a-z0-9_-]+/g, '-');
+}
+
+function isSafeRenderedURL(value) {
+    const raw = String(value || '').trim();
+    if (raw === '' || raw.startsWith('#')) return true;
+    try {
+        const url = new URL(raw, window.location.href);
+        return ['http:', 'https:', 'mailto:'].includes(url.protocol);
+    } catch {
+        return false;
+    }
+}
+
+function sanitizeHTMLFragment(root) {
+    root.querySelectorAll('script,style,iframe,object,embed,link,meta,base,form,input,button,textarea,select').forEach(el => el.remove());
+    root.querySelectorAll('*').forEach(el => {
+        [...el.attributes].forEach(attr => {
+            const name = attr.name.toLowerCase();
+            if (name.startsWith('on') || name === 'srcdoc' || name === 'style') {
+                el.removeAttribute(attr.name);
+                return;
+            }
+            if ((name === 'href' || name === 'src' || name === 'xlink:href') && !isSafeRenderedURL(attr.value)) {
+                el.removeAttribute(attr.name);
+            }
+        });
+    });
+}
+
+function renderSafeMarkdown(value) {
+    const template = document.createElement('template');
+    template.innerHTML = marked.parse(escapeHTML(value));
+    sanitizeHTMLFragment(template.content);
+    return template.innerHTML;
+}
+
+function highlightMatches(text, query) {
+    const source = String(text ?? '');
+    const q = String(query ?? '');
+    if (!q) return escapeHTML(source);
+    const re = new RegExp(escapeRegExp(q), 'gi');
+    let out = '', last = 0;
+    source.replace(re, (match, offset) => {
+        out += escapeHTML(source.slice(last, offset)) + '<mark>' + escapeHTML(match) + '</mark>';
+        last = offset + match.length;
+        return match;
+    });
+    return out + escapeHTML(source.slice(last));
+}
+
 // Stats calculation
 let actionable = 0, blocked = 0, onCriticalPath = 0, articulationCount = 0;
 const blockerCount = {};
@@ -1158,13 +1220,13 @@ function populatePanelContent(prefix, node) {
     // Type badge
     const typeBadge = document.getElementById(prefix + 'type-badge');
     typeBadge.textContent = node.type || 'task';
-    typeBadge.className = 'hover-type-badge badge-' + (node.type || 'task');
+    typeBadge.className = 'hover-type-badge badge-' + safeClassToken(node.type || 'task');
 
     // Badges
     const badgesEl = document.getElementById(prefix + 'badges');
     badgesEl.innerHTML = '';
     const addBadge = (cls, text) => { const b = document.createElement('span'); b.className = 'badge ' + cls; b.textContent = text; badgesEl.appendChild(b); };
-    addBadge('badge-' + node.status, node.status.replace('_', ' '));
+    addBadge('badge-' + safeClassToken(node.status), node.status.replace('_', ' '));
     addBadge('', 'P' + node.priority);
     if (node.is_articulation) addBadge('badge-articulation', 'Cut Vertex');
     if (node.slack === 0) addBadge('badge-critical', 'Critical Path');
@@ -1174,28 +1236,28 @@ function populatePanelContent(prefix, node) {
     const descSection = document.getElementById(prefix + 'description');
     if (node.description) {
         descSection.style.display = 'block';
-        document.getElementById(prefix + 'description-content').innerHTML = marked.parse(node.description);
+        document.getElementById(prefix + 'description-content').innerHTML = renderSafeMarkdown(node.description);
     } else { descSection.style.display = 'none'; }
 
     // Design
     const designSection = document.getElementById(prefix + 'design');
     if (node.design) {
         designSection.style.display = 'block';
-        document.getElementById(prefix + 'design-content').innerHTML = marked.parse(node.design);
+        document.getElementById(prefix + 'design-content').innerHTML = renderSafeMarkdown(node.design);
     } else { designSection.style.display = 'none'; }
 
     // Acceptance Criteria
     const acSection = document.getElementById(prefix + 'acceptance');
     if (node.acceptance_criteria) {
         acSection.style.display = 'block';
-        document.getElementById(prefix + 'acceptance-content').innerHTML = marked.parse(node.acceptance_criteria);
+        document.getElementById(prefix + 'acceptance-content').innerHTML = renderSafeMarkdown(node.acceptance_criteria);
     } else { acSection.style.display = 'none'; }
 
     // Notes
     const notesSection = document.getElementById(prefix + 'notes');
     if (node.notes) {
         notesSection.style.display = 'block';
-        document.getElementById(prefix + 'notes-content').innerHTML = marked.parse(node.notes);
+        document.getElementById(prefix + 'notes-content').innerHTML = renderSafeMarkdown(node.notes);
     } else { notesSection.style.display = 'none'; }
 
     // Metadata
@@ -1203,7 +1265,7 @@ function populatePanelContent(prefix, node) {
     metaEl.innerHTML = '';
     const addMeta = (label, value) => {
         if (!value) return;
-        metaEl.innerHTML += '<div class="hover-meta-item"><span class="hover-meta-label">' + label + '</span><span class="hover-meta-value">' + value + '</span></div>';
+        metaEl.innerHTML += '<div class="hover-meta-item"><span class="hover-meta-label">' + escapeHTML(label) + '</span><span class="hover-meta-value">' + escapeHTML(value) + '</span></div>';
     };
     addMeta('Assignee', node.assignee);
     addMeta('Created', node.created_at);
@@ -1216,7 +1278,7 @@ function populatePanelContent(prefix, node) {
     const blockedByList = document.getElementById(prefix + 'blocked-by-list');
     if (node.blocked_by && node.blocked_by.length > 0) {
         blockedBySection.style.display = 'block';
-        blockedByList.innerHTML = node.blocked_by.map(id => '<span class="hover-dep-chip" data-id="' + id + '">' + id + '</span>').join('');
+        blockedByList.innerHTML = node.blocked_by.map(id => '<span class="hover-dep-chip" data-id="' + escapeHTML(id) + '">' + escapeHTML(id) + '</span>').join('');
     } else { blockedBySection.style.display = 'none'; }
 
     // Blocks
@@ -1224,7 +1286,7 @@ function populatePanelContent(prefix, node) {
     const blocksList = document.getElementById(prefix + 'blocks-list');
     if (node.blocks && node.blocks.length > 0) {
         blocksSection.style.display = 'block';
-        blocksList.innerHTML = node.blocks.map(id => '<span class="hover-dep-chip" data-id="' + id + '">' + id + '</span>').join('');
+        blocksList.innerHTML = node.blocks.map(id => '<span class="hover-dep-chip" data-id="' + escapeHTML(id) + '">' + escapeHTML(id) + '</span>').join('');
     } else { blocksSection.style.display = 'none'; }
 
     // Commits
@@ -1232,14 +1294,14 @@ function populatePanelContent(prefix, node) {
     const commitsList = document.getElementById(prefix + 'commits-list');
     if (node.commits && node.commits.length > 0) {
         commitsSection.style.display = 'block';
-        commitsList.innerHTML = node.commits.slice(0, 5).map(c => '<div class="hover-commit"><span class="hover-commit-sha">' + c.short_sha + '</span> <span class="hover-commit-msg">' + (c.message || '').split('\\n')[0].substring(0, 60) + '</span></div>').join('');
+        commitsList.innerHTML = node.commits.slice(0, 5).map(c => '<div class="hover-commit"><span class="hover-commit-sha">' + escapeHTML(c.short_sha) + '</span> <span class="hover-commit-msg">' + escapeHTML((c.message || '').split('\\n')[0].substring(0, 60)) + '</span></div>').join('');
     } else { commitsSection.style.display = 'none'; }
 
     // Metrics
     const metricsEl = document.getElementById(prefix + 'metrics');
     metricsEl.innerHTML = '';
     const addMetric = (label, value) => {
-        metricsEl.innerHTML += '<div class="hover-meta-item"><span class="hover-meta-label">' + label + '</span><span class="hover-meta-value">' + value + '</span></div>';
+        metricsEl.innerHTML += '<div class="hover-meta-item"><span class="hover-meta-label">' + escapeHTML(label) + '</span><span class="hover-meta-value">' + escapeHTML(value) + '</span></div>';
     };
     const fmt = (v, d) => (v != null && isFinite(v)) ? v.toFixed(d) : '-';
     addMetric('PageRank', fmt(node.pagerank * 100, 3) + '%%');
@@ -1340,8 +1402,8 @@ function selectNode(node) {
     prioEl.style.color = node.priority <= 1 ? 'white' : '#0f0f1a';
     const badgesEl = document.getElementById('detail-badges');
     badgesEl.innerHTML = '';
-    const sb = document.createElement('span'); sb.className = 'badge badge-' + node.status; sb.textContent = node.status.replace('_', ' '); badgesEl.appendChild(sb);
-    const tb = document.createElement('span'); tb.className = 'badge badge-' + (node.type || 'task'); tb.textContent = node.type || 'task'; badgesEl.appendChild(tb);
+    const sb = document.createElement('span'); sb.className = 'badge badge-' + safeClassToken(node.status); sb.textContent = node.status.replace('_', ' '); badgesEl.appendChild(sb);
+    const tb = document.createElement('span'); tb.className = 'badge badge-' + safeClassToken(node.type || 'task'); tb.textContent = node.type || 'task'; badgesEl.appendChild(tb);
     const fmtSide = (v, d) => (v != null && isFinite(v)) ? v.toFixed(d) : '-';
     document.getElementById('m-pagerank').textContent = fmtSide(node.pagerank * 100, 2) + '%%';
     document.getElementById('m-prrank').textContent = '#' + (node.pagerank_rank || '-');
@@ -1403,13 +1465,13 @@ function performSearch(query) {
                     const idx = f.toLowerCase().indexOf(q);
                     const start = Math.max(0, idx - 30);
                     const end = Math.min(f.length, idx + q.length + 50);
-                    preview = '...' + f.substring(start, end).replace(new RegExp(q, 'gi'), '<mark>$&</mark>') + '...';
+                    preview = '...' + highlightMatches(f.substring(start, end), query) + '...';
                     break;
                 }
             }
-            return '<div class="search-result-item" data-id="' + n.id + '">' +
-                   '<div class="search-result-id">' + n.id + ' <span class="badge badge-' + n.status + '">' + n.status + '</span></div>' +
-                   '<div class="search-result-title">' + n.title + '</div>' +
+            return '<div class="search-result-item" data-id="' + escapeHTML(n.id) + '">' +
+                   '<div class="search-result-id">' + escapeHTML(n.id) + ' <span class="badge badge-' + safeClassToken(n.status) + '">' + escapeHTML(n.status) + '</span></div>' +
+                   '<div class="search-result-title">' + escapeHTML(n.title) + '</div>' +
                    (preview ? '<div class="search-result-preview">' + preview + '</div>' : '') +
                    '</div>';
         }).join('');
@@ -1537,7 +1599,7 @@ function applyFilters() {
 
 function updateVisibleCount() {
     const count = DATA.nodes.filter(n => currentVisibilityFilter(n)).length;
-    document.getElementById('stat-visible').innerHTML = '<span class="stat-value">' + count + '</span> visible';
+    document.getElementById('stat-visible').innerHTML = '<span class="stat-value">' + escapeHTML(count) + '</span> visible';
 }
 
 // View mode
@@ -1597,10 +1659,10 @@ document.getElementById('btn-triage').onclick = () => {
         list.innerHTML = DATA.triage.recommendations.slice(0, 5).map(r => {
             const score = (r.score != null && isFinite(r.score)) ? r.score.toFixed(2) : '-';
             const reason = (r.reasons && r.reasons.length > 0) ? r.reasons[0] : '';
-            return '<div class="triage-item" data-id="' + (r.id || '') + '">' +
-                '<div class="triage-item-header"><span class="triage-item-id">' + (r.id || '-') + '</span><span class="triage-item-score">' + score + '</span></div>' +
-                '<div class="triage-item-title">' + (r.title || '') + '</div>' +
-                '<div class="triage-item-reason">' + reason + '</div></div>';
+            return '<div class="triage-item" data-id="' + escapeHTML(r.id || '') + '">' +
+                '<div class="triage-item-header"><span class="triage-item-id">' + escapeHTML(r.id || '-') + '</span><span class="triage-item-score">' + escapeHTML(score) + '</span></div>' +
+                '<div class="triage-item-title">' + escapeHTML(r.title || '') + '</div>' +
+                '<div class="triage-item-reason">' + escapeHTML(reason) + '</div></div>';
         }).join('');
         list.querySelectorAll('.triage-item').forEach(item => {
             item.onclick = () => {
@@ -1619,7 +1681,7 @@ document.getElementById('btn-top').onclick = () => {
     document.getElementById('btn-top').classList.toggle('active', visible);
     if (visible) {
         const sorted = [...DATA.nodes].sort((a, b) => (b.pagerank || 0) - (a.pagerank || 0)).slice(0, 10);
-        panel.innerHTML = sorted.map((n, i) => '<div class="top-node-item" data-id="' + n.id + '"><span class="rank">#' + (i+1) + '</span><span>' + n.id + '</span></div>').join('');
+        panel.innerHTML = sorted.map((n, i) => '<div class="top-node-item" data-id="' + escapeHTML(n.id) + '"><span class="rank">#' + escapeHTML(i+1) + '</span><span>' + escapeHTML(n.id) + '</span></div>').join('');
         panel.querySelectorAll('.top-node-item').forEach(el => {
             el.onclick = () => {
                 const graphNodes = Graph.graphData().nodes;
@@ -1667,7 +1729,7 @@ function addToRecent(node) {
 function updateRecentPanel() {
     const list = document.getElementById('recent-list');
     list.innerHTML = recentlyViewed.map(n =>
-        '<div class="recent-item" data-id="' + n.id + '"><span class="recent-id">' + n.id + '</span></div>'
+        '<div class="recent-item" data-id="' + escapeHTML(n.id) + '"><span class="recent-id">' + escapeHTML(n.id) + '</span></div>'
     ).join('');
     list.querySelectorAll('.recent-item').forEach(el => {
         el.onclick = () => {

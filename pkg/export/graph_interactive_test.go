@@ -1,6 +1,7 @@
 package export
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -75,5 +76,71 @@ func TestGenerateInteractiveGraphHTML_Basic(t *testing.T) {
 
 	if path == "" {
 		t.Error("Expected non-empty path")
+	}
+}
+
+func TestGenerateInteractiveGraphHTML_EscapesDynamicHTML(t *testing.T) {
+	tmpDir := t.TempDir()
+	issues := []model.Issue{
+		{
+			ID:                 `bv-1" data-x="bad`,
+			Title:              `<img src=x onerror=alert(1)>`,
+			Description:        `[bad link](javascript:alert(1)) <img src=x onerror=alert(1)>`,
+			Design:             `<script>alert(1)</script>`,
+			AcceptanceCriteria: `accept <svg onload=alert(1)>`,
+			Notes:              `note <iframe srcdoc="<script>alert(1)</script>"></iframe>`,
+			Status:             model.StatusOpen,
+			Priority:           1,
+			Labels:             []string{`<label onclick=alert(1)>`},
+			Assignee:           `<b>mallory</b>`,
+		},
+	}
+
+	path, err := GenerateInteractiveGraphHTML(InteractiveGraphOptions{
+		Issues:      issues,
+		Title:       "Escaping Graph",
+		Path:        tmpDir + "/escaping.html",
+		ProjectName: "escaping",
+	})
+	if err != nil {
+		t.Fatalf("GenerateInteractiveGraphHTML failed: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read generated graph: %v", err)
+	}
+	html := string(data)
+
+	required := []string{
+		"function escapeHTML(value)",
+		"function sanitizeHTMLFragment(root)",
+		"function renderSafeMarkdown(value)",
+		"renderSafeMarkdown(node.description)",
+		"renderSafeMarkdown(node.design)",
+		"renderSafeMarkdown(node.acceptance_criteria)",
+		"renderSafeMarkdown(node.notes)",
+		"escapeHTML(n.title)",
+		"highlightMatches(f.substring(start, end), query)",
+		"safeClassToken(n.status)",
+	}
+	for _, want := range required {
+		if !strings.Contains(html, want) {
+			t.Fatalf("generated graph missing safety guard %q", want)
+		}
+	}
+
+	forbidden := []string{
+		"marked.parse(node.description)",
+		"marked.parse(node.design)",
+		"marked.parse(node.acceptance_criteria)",
+		"marked.parse(node.notes)",
+		"new RegExp(q, 'gi')",
+		"<img src=x onerror=alert(1)>",
+	}
+	for _, bad := range forbidden {
+		if strings.Contains(html, bad) {
+			t.Fatalf("generated graph contains unsafe pattern %q", bad)
+		}
 	}
 }

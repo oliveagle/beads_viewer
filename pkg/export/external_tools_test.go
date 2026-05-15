@@ -112,6 +112,54 @@ func TestOpenCloudflareInBrowser_NoCommandReturnsError(t *testing.T) {
 	}
 }
 
+func TestBrowserOpenCommandForGOOS(t *testing.T) {
+	url := "https://example.com/path?a=1&b=two"
+	tests := []struct {
+		name     string
+		goos     string
+		wantName string
+		wantArgs []string
+	}{
+		{
+			name:     "macos open",
+			goos:     "darwin",
+			wantName: "open",
+			wantArgs: []string{url},
+		},
+		{
+			name:     "linux xdg open",
+			goos:     "linux",
+			wantName: "xdg-open",
+			wantArgs: []string{url},
+		},
+		{
+			name:     "windows shell-free protocol handler",
+			goos:     "windows",
+			wantName: "rundll32",
+			wantArgs: []string{"url.dll,FileProtocolHandler", url},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotName, gotArgs, err := browserOpenCommandForGOOS(tt.goos, url)
+			if err != nil {
+				t.Fatalf("browserOpenCommandForGOOS returned error: %v", err)
+			}
+			if gotName != tt.wantName {
+				t.Fatalf("command name = %q, want %q", gotName, tt.wantName)
+			}
+			if strings.Join(gotArgs, "\x00") != strings.Join(tt.wantArgs, "\x00") {
+				t.Fatalf("command args = %#v, want %#v", gotArgs, tt.wantArgs)
+			}
+		})
+	}
+
+	if _, _, err := browserOpenCommandForGOOS("plan9", url); err == nil {
+		t.Fatal("Expected unsupported platform to return an error")
+	}
+}
+
 func TestDeployToGitHubPages_NoGHReturnsError(t *testing.T) {
 	t.Setenv("PATH", "")
 

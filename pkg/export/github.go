@@ -631,27 +631,36 @@ func OpenInBrowser(url string) error {
 		return nil
 	}
 
-	var cmd *exec.Cmd
+	return startBrowserURL(url)
+}
 
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", url)
-	case "linux":
-		cmd = exec.Command("xdg-open", url)
-	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", url)
-	default:
-		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
+func startBrowserURL(url string) error {
+	name, args, err := browserOpenCommandForGOOS(runtime.GOOS, url)
+	if err != nil {
+		return err
 	}
 
-	return cmd.Start()
+	return exec.Command(name, args...).Start()
+}
+
+func browserOpenCommandForGOOS(goos, url string) (string, []string, error) {
+	switch goos {
+	case "darwin":
+		return "open", []string{url}, nil
+	case "linux":
+		return "xdg-open", []string{url}, nil
+	case "windows":
+		return "rundll32", []string{"url.dll,FileProtocolHandler", url}, nil
+	default:
+		return "", nil, fmt.Errorf("unsupported platform: %s", goos)
+	}
 }
 
 // SuggestRepoName generates a suggested repository name from the bundle path.
 func SuggestRepoName(bundlePath string) string {
 	// Use the directory name
 	name := filepath.Base(bundlePath)
-	if name == "." || name == "/" || name == "" {
+	if isEmptyPathBase(name) {
 		// Get parent dir name
 		abs, err := filepath.Abs(bundlePath)
 		if err == nil {
@@ -660,11 +669,11 @@ func SuggestRepoName(bundlePath string) string {
 	}
 
 	// If it's bv-pages or similar, use parent project name
-	if name == "bv-pages" || name == "pages" || name == "docs" {
+	if isGenericPagesDir(name) {
 		abs, err := filepath.Abs(bundlePath)
 		if err == nil {
 			parent := filepath.Base(filepath.Dir(abs))
-			if parent != "" && parent != "." && parent != "/" {
+			if !isEmptyPathBase(parent) {
 				name = parent + "-pages"
 			}
 		}
@@ -675,6 +684,24 @@ func SuggestRepoName(bundlePath string) string {
 	name = strings.ToLower(name)
 
 	return name
+}
+
+func isEmptyPathBase(name string) bool {
+	switch name {
+	case ".", "/", "":
+		return true
+	default:
+		return false
+	}
+}
+
+func isGenericPagesDir(name string) bool {
+	switch name {
+	case "bv-pages", "pages", "docs":
+		return true
+	default:
+		return false
+	}
 }
 
 // GitHubActionsWorkflowContent returns the content for a static site deployment workflow.

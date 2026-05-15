@@ -925,10 +925,8 @@ func VerifyGitHubPagesDeployment(pagesURL string, expectedIssueCount int, timeou
 
 		// Check issue count matches expected
 		if expectedIssueCount > 0 && meta.IssueCount != expectedIssueCount {
-			// Data mismatch - might be stale cache
-			fmt.Printf("  ⚠ Warning: Live site shows %d issues, expected %d (CDN may be caching stale data)\n",
+			return fmt.Errorf("deployment verification issue count mismatch: live site shows %d issues, expected %d",
 				meta.IssueCount, expectedIssueCount)
-			return nil // Not a fatal error, just a warning
 		}
 
 		fmt.Printf("  ✓ Deployment verified: %d issues live\n", meta.IssueCount)
@@ -936,9 +934,9 @@ func VerifyGitHubPagesDeployment(pagesURL string, expectedIssueCount int, timeou
 	}
 
 	if lastErr != nil {
-		fmt.Printf("  ⚠ Could not verify deployment (site may still be building): %v\n", lastErr)
+		return fmt.Errorf("deployment verification failed for %s: %w", metaURL, lastErr)
 	}
-	return nil // Don't fail on verification timeout
+	return fmt.Errorf("deployment verification timed out for %s", metaURL)
 }
 
 // DeployToGitHubPagesWithFallback performs deployment with automatic fallback to legacy mode
@@ -975,7 +973,9 @@ func DeployToGitHubPagesWithFallback(config GitHubDeployConfig, expectedIssueCou
 
 	// Verify deployment if we have expected issue count
 	if expectedIssueCount > 0 {
-		VerifyGitHubPagesDeployment(result.PagesURL, expectedIssueCount, 90*time.Second)
+		if err := VerifyGitHubPagesDeployment(result.PagesURL, expectedIssueCount, 90*time.Second); err != nil {
+			return nil, fmt.Errorf("verify github pages deployment: %w", err)
+		}
 	}
 
 	return result, nil

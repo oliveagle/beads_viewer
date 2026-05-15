@@ -1,10 +1,13 @@
 package export
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseGHUsername(t *testing.T) {
@@ -431,6 +434,42 @@ func TestSuggestRepoName_EdgeCases(t *testing.T) {
 				t.Errorf("SuggestRepoName(%q) = %q, want %q", tc.path, result, tc.expected)
 			}
 		})
+	}
+}
+
+func TestVerifyGitHubPagesDeployment_IssueCountMismatchReturnsError(t *testing.T) {
+	requireCurl(t)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/data/meta.json", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"issue_count": 1}`))
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	err := VerifyGitHubPagesDeployment(server.URL, 2, time.Second)
+	if err == nil {
+		t.Fatal("Expected VerifyGitHubPagesDeployment to fail on stale issue count")
+	}
+	if !strings.Contains(err.Error(), "issue count mismatch") {
+		t.Fatalf("Unexpected verification error: %v", err)
+	}
+}
+
+func TestVerifyGitHubPagesDeployment_Success(t *testing.T) {
+	requireCurl(t)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/data/meta.json", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"issue_count": 2}`))
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	if err := VerifyGitHubPagesDeployment(server.URL, 2, time.Second); err != nil {
+		t.Fatalf("VerifyGitHubPagesDeployment returned error: %v", err)
 	}
 }
 

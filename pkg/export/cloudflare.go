@@ -642,9 +642,8 @@ func VerifyCloudflareDeployment(deployURL string, expectedIssueCount int, timeou
 
 		// Check issue count matches expected
 		if expectedIssueCount > 0 && meta.IssueCount != expectedIssueCount {
-			fmt.Printf("  ⚠ Warning: Live site shows %d issues, expected %d\n",
+			return fmt.Errorf("deployment verification issue count mismatch: live site shows %d issues, expected %d",
 				meta.IssueCount, expectedIssueCount)
-			return nil
 		}
 
 		fmt.Printf("  ✓ Deployment verified: %d issues live\n", meta.IssueCount)
@@ -652,9 +651,9 @@ func VerifyCloudflareDeployment(deployURL string, expectedIssueCount int, timeou
 	}
 
 	if lastErr != nil {
-		fmt.Printf("  ⚠ Could not verify deployment: %v\n", lastErr)
+		return fmt.Errorf("deployment verification failed for %s: %w", metaURL, lastErr)
 	}
-	return nil
+	return fmt.Errorf("deployment verification timed out for %s", metaURL)
 }
 
 // DeployToCloudflareWithAutoCreate performs deployment with automatic project creation.
@@ -782,7 +781,9 @@ func DeployToCloudflareWithAutoCreate(config CloudflareDeployConfig, expectedIss
 
 	// 10. Verify deployment
 	if expectedIssueCount > 0 {
-		VerifyCloudflareDeployment(deployURL, expectedIssueCount, 30*time.Second)
+		if err := VerifyCloudflareDeployment(deployURL, expectedIssueCount, 30*time.Second); err != nil {
+			return nil, fmt.Errorf("verify cloudflare deployment: %w", err)
+		}
 	}
 
 	return result, nil

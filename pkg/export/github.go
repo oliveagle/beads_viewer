@@ -245,7 +245,16 @@ func RepoHasContent(repoFullName string) (bool, error) {
 	}
 
 	length := strings.TrimSpace(string(output))
-	return length != "" && length != "0", nil
+	return repoContentsLengthIndicatesContent(length), nil
+}
+
+func repoContentsLengthIndicatesContent(length string) bool {
+	switch length {
+	case "", "0":
+		return false
+	default:
+		return true
+	}
 }
 
 // InitAndPush initializes a git repository and pushes to GitHub.
@@ -286,18 +295,23 @@ func InitAndPush(bundlePath string, repoFullName string, forceOverwrite bool) er
 
 	for _, c := range commands {
 		fmt.Printf("  -> %s...\n", c.desc)
+		commandName := firstArg(c.args)
 		cmd := exec.Command("git", c.args...)
 		cmd.Dir = bundlePath
 		if output, err := cmd.CombinedOutput(); err != nil {
-			// Skip errors for branch -M if already on main
-			if c.args[0] == "branch" && strings.Contains(string(output), "already") {
-				continue
+			switch commandName {
+			case "branch":
+				// Skip errors for branch -M if already on main
+				if strings.Contains(string(output), "already") {
+					continue
+				}
+			case "commit":
+				// Skip commit error if nothing to commit
+				if strings.Contains(string(output), "nothing to commit") {
+					continue
+				}
 			}
-			// Skip commit error if nothing to commit
-			if c.args[0] == "commit" && strings.Contains(string(output), "nothing to commit") {
-				continue
-			}
-			return fmt.Errorf("%s failed: %s", c.args[0], strings.TrimSpace(string(output)))
+			return fmt.Errorf("%s failed: %s", commandName, strings.TrimSpace(string(output)))
 		}
 	}
 
@@ -345,6 +359,13 @@ func gitCommandOutputError(context string, output []byte, err error) error {
 		return fmt.Errorf("%s failed: %w", context, err)
 	}
 	return fmt.Errorf("%s failed: %w: %s", context, err, msg)
+}
+
+func firstArg(args []string) string {
+	if len(args) == 0 {
+		return ""
+	}
+	return args[0]
 }
 
 // EnableGitHubPages enables GitHub Pages for a repository.
@@ -801,6 +822,7 @@ func PushToGHPagesBranch(bundlePath string, repoFullName string) error {
 	}
 
 	for _, c := range commands {
+		commandName := firstArg(c.args)
 		cmd := exec.Command("git", c.args...)
 		cmd.Dir = bundlePath
 		if output, err := cmd.CombinedOutput(); err != nil {
@@ -812,11 +834,14 @@ func PushToGHPagesBranch(bundlePath string, repoFullName string) error {
 				checkoutCmd.Run()
 				continue
 			}
-			// Skip commit error if nothing to commit
-			if c.args[0] == "commit" && strings.Contains(string(output), "nothing to commit") {
-				continue
+			switch commandName {
+			case "commit":
+				// Skip commit error if nothing to commit
+				if strings.Contains(string(output), "nothing to commit") {
+					continue
+				}
 			}
-			return fmt.Errorf("%s failed: %s", c.args[0], strings.TrimSpace(string(output)))
+			return fmt.Errorf("%s failed: %s", commandName, strings.TrimSpace(string(output)))
 		}
 	}
 

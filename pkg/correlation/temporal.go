@@ -54,10 +54,15 @@ type TemporalWindow struct {
 
 // FindCommitsInWindow finds commits by the specified author within the given time window
 func (t *TemporalCorrelator) FindCommitsInWindow(window TemporalWindow) ([]CorrelatedCommit, error) {
+	authorRegex := gitAuthorRegex(window.Author, window.AuthorEmail)
+	if authorRegex == "" {
+		return nil, nil
+	}
+
 	// Build git log command with author and date filters
 	args := []string{
 		"log",
-		fmt.Sprintf("--author=%s", window.AuthorEmail),
+		fmt.Sprintf("--author=%s", authorRegex),
 		fmt.Sprintf("--since=%s", window.Start.Format(time.RFC3339)),
 		fmt.Sprintf("--until=%s", window.End.Format(time.RFC3339)),
 		"--format=" + gitLogHeaderFormat,
@@ -138,6 +143,17 @@ func (t *TemporalCorrelator) FindCommitsInWindow(window TemporalWindow) ([]Corre
 	}
 
 	return commits, scanner.Err()
+}
+
+func gitAuthorRegex(author, authorEmail string) string {
+	identity := strings.TrimSpace(authorEmail)
+	if identity == "" {
+		identity = strings.TrimSpace(author)
+	}
+	if identity == "" {
+		return ""
+	}
+	return regexp.QuoteMeta(identity)
 }
 
 // touchesBeadsFile checks if a commit modifies any beads file

@@ -1,6 +1,7 @@
 package correlation
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -127,10 +128,54 @@ func TestPathsMatchHints(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := pathsMatchHints(tt.files, tt.hints)
-			if got != tt.want {
+			if (got && !tt.want) || (!got && tt.want) {
 				t.Errorf("pathsMatchHints() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestGitAuthorRegexEscapesEmailMetacharacters(t *testing.T) {
+	email := "dev+triage@example.com"
+	got := gitAuthorRegex("Dev Triage", email)
+
+	if strings.Compare(got, email) == 0 {
+		t.Fatalf("gitAuthorRegex(%q) was not escaped", email)
+	}
+
+	re, err := regexp.Compile("^" + got + "$")
+	if err != nil {
+		t.Fatalf("escaped author regex did not compile: %v", err)
+	}
+	if !re.MatchString(email) {
+		t.Fatalf("escaped author regex %q did not match original email", got)
+	}
+	if re.MatchString("devvtriage@examplexcom") {
+		t.Fatalf("escaped author regex %q matched a regex-expanded email", got)
+	}
+}
+
+func TestGitAuthorRegexFallsBackToAuthorName(t *testing.T) {
+	got := gitAuthorRegex(" Dev+Triage ", "")
+	if len(got) < 1 {
+		t.Fatal("expected author-name fallback regex")
+	}
+
+	re, err := regexp.Compile("^" + got + "$")
+	if err != nil {
+		t.Fatalf("author-name fallback regex did not compile: %v", err)
+	}
+	if !re.MatchString("Dev+Triage") {
+		t.Fatalf("author-name fallback regex %q did not match trimmed author name", got)
+	}
+	if re.MatchString("DevvTriage") {
+		t.Fatalf("author-name fallback regex %q matched a regex-expanded author name", got)
+	}
+}
+
+func TestGitAuthorRegexEmptyIdentity(t *testing.T) {
+	if got := gitAuthorRegex(" ", " "); len(got) > 0 {
+		t.Fatalf("gitAuthorRegex returned %q for empty author identity", got)
 	}
 }
 
@@ -150,7 +195,7 @@ func TestClamp(t *testing.T) {
 
 	for _, tt := range tests {
 		got := clamp(tt.value, tt.min, tt.max)
-		if got != tt.want {
+		if got < tt.want || got > tt.want {
 			t.Errorf("clamp(%v, %v, %v) = %v, want %v", tt.value, tt.min, tt.max, got, tt.want)
 		}
 	}
@@ -398,13 +443,13 @@ func TestExtractWindowFromMilestones(t *testing.T) {
 				t.Fatal("ExtractWindowFromMilestones() = nil, want non-nil")
 			}
 
-			if got.BeadID != tt.beadID {
+			if strings.Compare(got.BeadID, tt.beadID) != 0 {
 				t.Errorf("BeadID = %q, want %q", got.BeadID, tt.beadID)
 			}
-			if got.Title != tt.title {
+			if strings.Compare(got.Title, tt.title) != 0 {
 				t.Errorf("Title = %q, want %q", got.Title, tt.title)
 			}
-			if got.Author != claimedEvent.Author {
+			if strings.Compare(got.Author, claimedEvent.Author) != 0 {
 				t.Errorf("Author = %q, want %q", got.Author, claimedEvent.Author)
 			}
 			if !got.Start.Equal(claimedEvent.Timestamp) {

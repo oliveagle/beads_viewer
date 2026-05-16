@@ -412,6 +412,14 @@ func TestResolveCorrelatedCommitRejectsAmbiguousPrefix(t *testing.T) {
 		t.Fatalf("resolved commit = %#v, want abc123def456", commit)
 	}
 
+	commit, err = resolveCorrelatedCommit(commits, "ABC123F")
+	if err != nil {
+		t.Fatalf("resolveCorrelatedCommit uppercase short SHA returned error: %v", err)
+	}
+	if commit == nil || commit.SHA != "abc123fff000" {
+		t.Fatalf("uppercase resolved commit = %#v, want abc123fff000", commit)
+	}
+
 	commit, err = resolveCorrelatedCommit(commits, "abc123")
 	if err == nil {
 		t.Fatal("expected ambiguous prefix error")

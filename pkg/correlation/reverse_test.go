@@ -103,6 +103,27 @@ func TestNewReverseLookup(t *testing.T) {
 	}
 }
 
+func TestNewReverseLookup_NilReport(t *testing.T) {
+	rl := NewReverseLookup(nil)
+	if rl == nil {
+		t.Fatal("NewReverseLookup returned nil")
+	}
+	if len(rl.index) != 0 {
+		t.Errorf("index has %d entries, want 0", len(rl.index))
+	}
+	if len(rl.beads) != 0 {
+		t.Errorf("beads has %d entries, want 0", len(rl.beads))
+	}
+
+	result, err := rl.LookupByCommit("abc123")
+	if err != nil {
+		t.Fatalf("LookupByCommit on empty lookup failed: %v", err)
+	}
+	if !result.IsOrphan {
+		t.Fatal("empty lookup should mark unknown commit as orphan")
+	}
+}
+
 func TestLookupByCommit_Found(t *testing.T) {
 	report := createTestReport()
 	rl := NewReverseLookup(report)
@@ -147,6 +168,22 @@ func TestLookupByCommit_ShortSHA(t *testing.T) {
 
 	if len(result.RelatedBeads) != 2 {
 		t.Errorf("RelatedBeads has %d entries, want 2", len(result.RelatedBeads))
+	}
+}
+
+func TestLookupByCommit_UppercaseShortSHA(t *testing.T) {
+	report := createTestReport()
+	rl := NewReverseLookup(report)
+
+	result, err := rl.LookupByCommit("ABC123")
+	if err != nil {
+		t.Fatalf("LookupByCommit with uppercase short SHA failed: %v", err)
+	}
+	if result.CommitSHA != "abc123def456" {
+		t.Fatalf("CommitSHA = %q, want abc123def456", result.CommitSHA)
+	}
+	if result.IsOrphan {
+		t.Fatal("uppercase short SHA should resolve to indexed commit")
 	}
 }
 

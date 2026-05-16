@@ -44,13 +44,22 @@ type ReverseLookup struct {
 // NewReverseLookup creates a new reverse lookup from a history report.
 func NewReverseLookup(report *HistoryReport) *ReverseLookup {
 	rl := &ReverseLookup{
-		index:   report.CommitIndex,
-		beads:   report.Histories,
+		index:   CommitIndex{},
+		beads:   map[string]BeadHistory{},
 		details: make(map[string][]CorrelatedCommit),
+	}
+	if report == nil {
+		return rl
+	}
+	if report.CommitIndex != nil {
+		rl.index = report.CommitIndex
+	}
+	if report.Histories != nil {
+		rl.beads = report.Histories
 	}
 
 	// Build details map for quick access
-	for _, history := range report.Histories {
+	for _, history := range rl.beads {
 		for _, commit := range history.Commits {
 			rl.details[commit.SHA] = append(rl.details[commit.SHA], commit)
 		}
@@ -140,7 +149,7 @@ func (rl *ReverseLookup) LookupByCommit(sha string) (*CommitBeadResult, error) {
 
 // resolveSHA expands a unique short SHA prefix to the indexed full SHA.
 func (rl *ReverseLookup) resolveSHA(sha string) (string, error) {
-	sha = strings.TrimSpace(sha)
+	sha = strings.ToLower(strings.TrimSpace(sha))
 	if sha == "" {
 		return "", fmt.Errorf("commit SHA is required")
 	}
@@ -151,7 +160,7 @@ func (rl *ReverseLookup) resolveSHA(sha string) (string, error) {
 
 	matches := make([]string, 0, 1)
 	for indexSHA := range rl.index {
-		if strings.HasPrefix(indexSHA, sha) {
+		if strings.HasPrefix(strings.ToLower(indexSHA), sha) {
 			matches = append(matches, indexSHA)
 		}
 	}

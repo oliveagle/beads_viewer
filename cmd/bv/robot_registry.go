@@ -1983,7 +1983,7 @@ func parseCorrelationArg(arg string) (string, string, error) {
 }
 
 func resolveCorrelatedCommit(commits []correlation.CorrelatedCommit, sha string) (*correlation.CorrelatedCommit, error) {
-	sha = strings.TrimSpace(sha)
+	sha = strings.ToLower(strings.TrimSpace(sha))
 	if sha == "" {
 		return nil, fmt.Errorf("commit SHA is required")
 	}
@@ -1995,12 +1995,13 @@ func resolveCorrelatedCommit(commits []correlation.CorrelatedCommit, sha string)
 	matches := make([]commitMatch, 0, 1)
 	seen := make(map[string]bool)
 	for i := range commits {
-		commitSHA := commits[i].SHA
+		commitSHA := strings.ToLower(commits[i].SHA)
 		if commitSHA == sha {
 			return &commits[i], nil
 		}
-		if (commits[i].ShortSHA == sha || strings.HasPrefix(commitSHA, sha)) && !seen[commitSHA] {
-			matches = append(matches, commitMatch{index: i, sha: commitSHA})
+		shortSHA := strings.ToLower(commits[i].ShortSHA)
+		if (shortSHA == sha || strings.HasPrefix(commitSHA, sha)) && !seen[commitSHA] {
+			matches = append(matches, commitMatch{index: i, sha: commits[i].SHA})
 			seen[commitSHA] = true
 		}
 	}

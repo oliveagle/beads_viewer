@@ -97,8 +97,81 @@ func LoadFeedback(beadsDir string) (*FeedbackData, error) {
 	if err := json.Unmarshal(data, &feedback); err != nil {
 		return nil, fmt.Errorf("failed to parse feedback file: %w", err)
 	}
+	feedback.normalizeLoaded()
 
 	return &feedback, nil
+}
+
+func (f *FeedbackData) normalizeLoaded() {
+	now := time.Now()
+	if f.Version == "" {
+		f.Version = "1.0"
+	}
+	if f.CreatedAt.IsZero() {
+		f.CreatedAt = now
+	}
+	if f.UpdatedAt.IsZero() {
+		f.UpdatedAt = f.CreatedAt
+	}
+	if f.Events == nil {
+		f.Events = []FeedbackEvent{}
+	}
+	f.Adjustments = normalizeWeightAdjustments(f.Adjustments, f.UpdatedAt)
+	f.Stats = calculateFeedbackStats(f.Events)
+}
+
+func normalizeWeightAdjustments(loaded []WeightAdjustment, fallbackTime time.Time) []WeightAdjustment {
+	byName := make(map[string]WeightAdjustment, len(loaded))
+	for _, adj := range loaded {
+		if adj.Name != "" {
+			byName[adj.Name] = adj
+		}
+	}
+
+	adjustments := defaultWeightAdjustments()
+	for i := range adjustments {
+		loadedAdj, ok := byName[adjustments[i].Name]
+		if !ok {
+			continue
+		}
+		if loadedAdj.Adjustment > 0 && !math.IsNaN(loadedAdj.Adjustment) && !math.IsInf(loadedAdj.Adjustment, 0) {
+			adjustments[i].Adjustment = math.Max(0.5, math.Min(2.0, loadedAdj.Adjustment))
+		}
+		if loadedAdj.Samples > 0 {
+			adjustments[i].Samples = loadedAdj.Samples
+		}
+		if !loadedAdj.LastUpdated.IsZero() {
+			adjustments[i].LastUpdated = loadedAdj.LastUpdated
+		} else if !fallbackTime.IsZero() {
+			adjustments[i].LastUpdated = fallbackTime
+		}
+	}
+	return adjustments
+}
+
+func calculateFeedbackStats(events []FeedbackEvent) FeedbackStats {
+	var stats FeedbackStats
+	var acceptedScoreTotal float64
+	var ignoredScoreTotal float64
+
+	for _, event := range events {
+		switch event.Action {
+		case "accept":
+			stats.TotalAccepted++
+			acceptedScoreTotal += event.Score
+		case "ignore":
+			stats.TotalIgnored++
+			ignoredScoreTotal += event.Score
+		}
+	}
+
+	if stats.TotalAccepted > 0 {
+		stats.AvgAcceptScore = acceptedScoreTotal / float64(stats.TotalAccepted)
+	}
+	if stats.TotalIgnored > 0 {
+		stats.AvgIgnoreScore = ignoredScoreTotal / float64(stats.TotalIgnored)
+	}
+	return stats
 }
 
 // Save persists feedback data to the beads directory

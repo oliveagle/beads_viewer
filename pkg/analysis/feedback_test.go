@@ -1,6 +1,7 @@
 package analysis
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -149,6 +150,76 @@ func TestLoadNonexistent(t *testing.T) {
 
 	if len(f.Events) != 0 {
 		t.Errorf("Expected empty events, got %d", len(f.Events))
+	}
+}
+
+func TestLoadFeedbackBackfillsMissingAdjustments(t *testing.T) {
+	dir := t.TempDir()
+	legacyJSON := []byte(`{
+		"version": "1.0",
+		"created_at": "2026-01-01T00:00:00Z",
+		"updated_at": "2026-01-01T00:00:00Z",
+		"events": [],
+		"stats": {}
+	}`)
+
+	if err := os.WriteFile(filepath.Join(dir, FeedbackFile), legacyJSON, 0644); err != nil {
+		t.Fatalf("Failed to write legacy feedback: %v", err)
+	}
+
+	f, err := LoadFeedback(dir)
+	if err != nil {
+		t.Fatalf("Failed to load legacy feedback: %v", err)
+	}
+
+	if len(f.Adjustments) != 8 {
+		t.Fatalf("Expected missing adjustments to be backfilled, got %d", len(f.Adjustments))
+	}
+
+	if err := f.RecordFeedback("test-legacy", "accept", 0.9, ScoreBreakdown{PageRankNorm: 0.8}); err != nil {
+		t.Fatalf("Failed to record feedback after backfill: %v", err)
+	}
+
+	weights := f.GetAdjustedWeights()
+	if weights["PageRank"] <= 1.0 {
+		t.Errorf("Expected PageRank adjustment to learn after backfill, got %f", weights["PageRank"])
+	}
+}
+
+func TestLoadFeedbackRecalculatesStatsFromEvents(t *testing.T) {
+	dir := t.TempDir()
+	legacyJSON := []byte(`{
+		"version": "1.0",
+		"created_at": "2026-01-01T00:00:00Z",
+		"updated_at": "2026-01-01T00:00:00Z",
+		"events": [
+			{"issue_id": "test-1", "action": "accept", "score": 0.8, "timestamp": "2026-01-01T00:00:00Z"},
+			{"issue_id": "test-2", "action": "accept", "score": 0.6, "timestamp": "2026-01-01T00:01:00Z"},
+			{"issue_id": "test-3", "action": "ignore", "score": 0.4, "timestamp": "2026-01-01T00:02:00Z"}
+		],
+		"stats": {}
+	}`)
+
+	if err := os.WriteFile(filepath.Join(dir, FeedbackFile), legacyJSON, 0644); err != nil {
+		t.Fatalf("Failed to write legacy feedback: %v", err)
+	}
+
+	f, err := LoadFeedback(dir)
+	if err != nil {
+		t.Fatalf("Failed to load legacy feedback: %v", err)
+	}
+
+	if f.Stats.TotalAccepted != 2 {
+		t.Errorf("Expected 2 accepted events, got %d", f.Stats.TotalAccepted)
+	}
+	if f.Stats.TotalIgnored != 1 {
+		t.Errorf("Expected 1 ignored event, got %d", f.Stats.TotalIgnored)
+	}
+	if math.Abs(f.Stats.AvgAcceptScore-0.7) > 1e-9 {
+		t.Errorf("Expected average accept score 0.7, got %f", f.Stats.AvgAcceptScore)
+	}
+	if math.Abs(f.Stats.AvgIgnoreScore-0.4) > 1e-9 {
+		t.Errorf("Expected average ignore score 0.4, got %f", f.Stats.AvgIgnoreScore)
 	}
 }
 

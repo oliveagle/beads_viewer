@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/Dicklesworthstone/beads_viewer/pkg/model"
+	"github.com/Dicklesworthstone/beads_viewer/pkg/version"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -63,6 +64,32 @@ func TestUpdateMsgSetsUpdateAvailable(t *testing.T) {
 	m = updated.(Model)
 	if !m.updateAvailable || m.updateTag != "v9.9.9" {
 		t.Fatalf("update flag not set")
+	}
+}
+
+func TestUpdateMsgIgnoresCurrentVersion(t *testing.T) {
+	m := NewModel([]model.Issue{{ID: "1", Title: "One", Status: model.StatusOpen}}, nil, "")
+	updated, _ := m.Update(UpdateMsg{TagName: version.Version, URL: "https://example"})
+	m = updated.(Model)
+
+	if m.updateAvailable || m.updateTag != "" || m.updateURL != "" {
+		t.Fatalf("current-version update message should be ignored: available=%v tag=%q url=%q",
+			m.updateAvailable, m.updateTag, m.updateURL)
+	}
+}
+
+func TestUpdateMsgClearsStaleEqualVersionNotice(t *testing.T) {
+	m := NewModel([]model.Issue{{ID: "1", Title: "One", Status: model.StatusOpen}}, nil, "")
+	m.updateAvailable = true
+	m.updateTag = "v9.9.9"
+	m.updateURL = "https://example/old"
+
+	updated, _ := m.Update(UpdateMsg{TagName: version.Version, URL: "https://example/current"})
+	m = updated.(Model)
+
+	if m.updateAvailable || m.updateTag != "" || m.updateURL != "" {
+		t.Fatalf("equal-version update message should clear stale notice: available=%v tag=%q url=%q",
+			m.updateAvailable, m.updateTag, m.updateURL)
 	}
 }
 

@@ -1269,6 +1269,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case UpdateMsg:
+		if !updater.IsNewerThanCurrent(msg.TagName) {
+			m.updateAvailable = false
+			m.updateTag = ""
+			m.updateURL = ""
+			return m, nil
+		}
 		m.updateAvailable = true
 		m.updateTag = msg.TagName
 		m.updateURL = msg.URL
@@ -6163,7 +6169,7 @@ func (m *Model) renderFooter() string {
 			Foreground(ColorBg).
 			Bold(true).
 			Padding(0, 1)
-		updateSection = updateStyle.Render(fmt.Sprintf("⭐ %s", m.updateTag))
+		updateSection = updateStyle.Render(fmt.Sprintf("⭐ Update %s", m.updateTag))
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────

@@ -172,7 +172,7 @@ func compareVersions(v1, v2 string) int {
 
 	// isDevLabel returns true if the prerelease label indicates a development build
 	isDevLabel := func(label string) bool {
-		label = strings.ToLower(label)
+		label = strings.ToLower(strings.TrimSpace(label))
 		return strings.Contains(label, "dev") ||
 			strings.Contains(label, "dirty") ||
 			strings.Contains(label, "nightly") ||
@@ -182,12 +182,13 @@ func compareVersions(v1, v2 string) int {
 	}
 
 	parse := func(v string) *parsed {
+		v = strings.TrimSpace(v)
 		v = strings.TrimPrefix(v, "v")
 		prerelease := false
 		preLabel := ""
 		if idx := strings.Index(v, "-"); idx != -1 {
 			prerelease = true
-			preLabel = v[idx+1:]
+			preLabel = strings.TrimSpace(v[idx+1:])
 			v = v[:idx] // compare only main version numbers
 		}
 		parts := strings.Split(v, ".")
@@ -223,7 +224,7 @@ func compareVersions(v1, v2 string) int {
 	// If local version (v2) is a development build (unparseable), consider it newer
 	// than any release to prevent downgrade prompts.
 	isDev := func(v string) bool {
-		v = strings.ToLower(v)
+		v = strings.ToLower(strings.TrimSpace(v))
 		return strings.Contains(v, "dev") ||
 			strings.Contains(v, "dirty") ||
 			strings.Contains(v, "nightly") ||
@@ -357,8 +358,8 @@ func compareVersions(v1, v2 string) int {
 
 	// Fallback: both are non-semver (e.g. "dev" vs "dirty").
 	// Use lexicographic sort just to be deterministic.
-	v1 = strings.TrimPrefix(v1, "v")
-	v2 = strings.TrimPrefix(v2, "v")
+	v1 = strings.TrimPrefix(strings.TrimSpace(v1), "v")
+	v2 = strings.TrimPrefix(strings.TrimSpace(v2), "v")
 	if v1 > v2 {
 		return 1
 	} else if v1 < v2 {

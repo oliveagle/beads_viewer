@@ -6820,6 +6820,23 @@ func runPagesWizard(beadsPath string) error {
 	fmt.Printf("  -> Bundle created: %s\n", bundlePath)
 	fmt.Println("")
 
+	// Persist source metadata and last-export info for reliable updates.
+	if source.BeadsDir != "" {
+		config.SourceBeadsDir = source.BeadsDir
+	}
+	if source.RepoRoot != "" {
+		config.SourceRepoRoot = source.RepoRoot
+	}
+	config.SourcePath = source.SourcePath
+	config.LastIssueCount = len(exportIssues)
+	config.LastDataHash = analysis.ComputeDataHash(exportIssues)
+	saveWizardConfig := func() error {
+		if err := export.SaveWizardConfig(config); err != nil {
+			return fmt.Errorf("save pages wizard configuration: %w", err)
+		}
+		return nil
+	}
+
 	// Offer preview and deploy (for GitHub and Cloudflare)
 	if config.DeployTarget == "github" || config.DeployTarget == "cloudflare" {
 		action, err := wizard.OfferPreview()
@@ -6834,6 +6851,9 @@ func runPagesWizard(beadsPath string) error {
 				BundlePath:   bundlePath,
 				DeployTarget: "local",
 			}
+			if err := saveWizardConfig(); err != nil {
+				return err
+			}
 			wizard.PrintSuccess(result)
 		} else {
 			// Perform deployment with issue count for verification
@@ -6842,6 +6862,9 @@ func runPagesWizard(beadsPath string) error {
 				return err
 			}
 
+			if err := saveWizardConfig(); err != nil {
+				return err
+			}
 			wizard.PrintSuccess(result)
 		}
 	} else {
@@ -6850,22 +6873,11 @@ func runPagesWizard(beadsPath string) error {
 			BundlePath:   bundlePath,
 			DeployTarget: "local",
 		}
+		if err := saveWizardConfig(); err != nil {
+			return err
+		}
 		wizard.PrintSuccess(result)
 	}
-
-	// Persist source metadata and last-export info for reliable updates.
-	if source.BeadsDir != "" {
-		config.SourceBeadsDir = source.BeadsDir
-	}
-	if source.RepoRoot != "" {
-		config.SourceRepoRoot = source.RepoRoot
-	}
-	config.SourcePath = source.SourcePath
-	config.LastIssueCount = len(exportIssues)
-	config.LastDataHash = analysis.ComputeDataHash(exportIssues)
-
-	// Save config for next run
-	export.SaveWizardConfig(config)
 
 	return nil
 }

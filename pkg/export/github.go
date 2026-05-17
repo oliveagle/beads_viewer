@@ -853,16 +853,14 @@ func SwitchToLegacyDeployment(repoFullName string) error {
 	return nil
 }
 
-// PushToGHPagesBranch creates and pushes to the gh-pages branch for legacy deployment.
+// PushToGHPagesBranch pushes the current bundle commit to the gh-pages branch for legacy deployment.
 func PushToGHPagesBranch(bundlePath string, repoFullName string) error {
-	fmt.Println("  -> Creating gh-pages branch...")
+	fmt.Println("  -> Preparing gh-pages branch...")
 
-	// Create orphan gh-pages branch
 	commands := []struct {
 		args []string
 		desc string
 	}{
-		{[]string{"checkout", "--orphan", "gh-pages"}, "Creating gh-pages branch"},
 		{[]string{"add", "."}, "Staging files"},
 		{[]string{"commit", "-m", "Deploy via legacy gh-pages branch"}, "Creating commit"},
 	}
@@ -872,14 +870,6 @@ func PushToGHPagesBranch(bundlePath string, repoFullName string) error {
 		cmd := exec.Command("git", c.args...)
 		cmd.Dir = bundlePath
 		if output, err := cmd.CombinedOutput(); err != nil {
-			// Skip if branch already exists
-			if strings.Contains(string(output), "already exists") {
-				// Checkout existing branch and force update
-				checkoutCmd := exec.Command("git", "checkout", "gh-pages")
-				checkoutCmd.Dir = bundlePath
-				checkoutCmd.Run()
-				continue
-			}
 			switch commandName {
 			case "commit":
 				// Skip commit error if nothing to commit
@@ -891,11 +881,11 @@ func PushToGHPagesBranch(bundlePath string, repoFullName string) error {
 		}
 	}
 
-	// Push gh-pages branch. If a remote gh-pages branch exists, fetch it first
-	// so force-with-lease protects against concurrent updates. If it does not
-	// exist, a normal push creates it without needing force.
+	// Push the current export commit to gh-pages. Do not check out an existing
+	// gh-pages branch here: that would replace the freshly exported bundle with
+	// the old branch contents before staging and can redeploy stale pages.
 	fmt.Println("  -> Pushing gh-pages branch...")
-	pushArgs := []string{"push", "-u", "origin", "gh-pages"}
+	pushArgs := []string{"push", "-u", "origin", "HEAD:gh-pages"}
 	if err := fetchRemoteBranch(bundlePath, "gh-pages"); err == nil {
 		pushArgs = append(pushArgs, "--force-with-lease")
 	}

@@ -3,6 +3,7 @@ package export
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -308,10 +309,83 @@ exit 0
 	if !strings.Contains(logText, "fetch --depth=1 origin gh-pages") {
 		t.Fatalf("expected PushToGHPagesBranch to fetch gh-pages before lease push, log:\n%s", logText)
 	}
-	if !strings.Contains(logText, "push -u origin gh-pages --force-with-lease") {
+	if !strings.Contains(logText, "push -u origin HEAD:gh-pages --force-with-lease") {
 		t.Fatalf("expected PushToGHPagesBranch to use force-with-lease, log:\n%s", logText)
 	}
-	if strings.Contains(logText, "push -u origin gh-pages --force\n") {
+	if strings.Contains(logText, "push -u origin HEAD:gh-pages --force\n") {
 		t.Fatalf("PushToGHPagesBranch attempted unsafe raw force push, log:\n%s", logText)
 	}
+}
+
+func TestPushToGHPagesBranch_PushesCurrentBundleWhenBranchExists(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script stubs not supported on windows in this test")
+	}
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not available: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	remoteDir := filepath.Join(tmpDir, "remote.git")
+	bundleDir := filepath.Join(tmpDir, "bundle")
+	if err := os.Mkdir(bundleDir, 0755); err != nil {
+		t.Fatalf("create bundle dir: %v", err)
+	}
+
+	runGit(t, "", "init", "--bare", remoteDir)
+	runGit(t, bundleDir, "init")
+	runGit(t, bundleDir, "config", "user.name", "BV Test")
+	runGit(t, bundleDir, "config", "user.email", "bv-test@example.com")
+	runGit(t, bundleDir, "config", "commit.gpgsign", "false")
+	runGit(t, bundleDir, "remote", "add", "origin", remoteDir)
+
+	if err := os.WriteFile(filepath.Join(bundleDir, "index.html"), []byte("initial"), 0644); err != nil {
+		t.Fatalf("write initial index: %v", err)
+	}
+	runGit(t, bundleDir, "add", ".")
+	runGit(t, bundleDir, "commit", "-m", "initial main")
+	runGit(t, bundleDir, "branch", "-M", "main")
+	runGit(t, bundleDir, "push", "-u", "origin", "main")
+
+	runGit(t, bundleDir, "checkout", "--orphan", "gh-pages")
+	if err := os.WriteFile(filepath.Join(bundleDir, "index.html"), []byte("stale gh-pages"), 0644); err != nil {
+		t.Fatalf("write stale gh-pages index: %v", err)
+	}
+	runGit(t, bundleDir, "add", ".")
+	runGit(t, bundleDir, "commit", "-m", "stale gh-pages")
+	runGit(t, bundleDir, "push", "-u", "origin", "gh-pages")
+
+	runGit(t, bundleDir, "checkout", "main")
+	if err := os.WriteFile(filepath.Join(bundleDir, "index.html"), []byte("fresh bundle"), 0644); err != nil {
+		t.Fatalf("write fresh bundle index: %v", err)
+	}
+	runGit(t, bundleDir, "add", ".")
+	runGit(t, bundleDir, "commit", "-m", "fresh main")
+
+	if err := PushToGHPagesBranch(bundleDir, "alice/repo"); err != nil {
+		t.Fatalf("PushToGHPagesBranch returned error: %v", err)
+	}
+
+	got := runGitOutput(t, "", "--git-dir", remoteDir, "show", "gh-pages:index.html")
+	if strings.TrimSpace(got) != "fresh bundle" {
+		t.Fatalf("remote gh-pages index = %q, want fresh bundle", got)
+	}
+}
+
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	_ = runGitOutput(t, dir, args...)
+}
+
+func runGitOutput(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, string(output))
+	}
+	return string(output)
 }
